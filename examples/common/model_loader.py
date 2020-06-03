@@ -10,3 +10,17 @@
  See the License for the specific language governing permissions and
  limitations under the License.
 """
+
+import tensorflow.keras.applications
+
+
+def get_model(model_name, pretrained):
+    if model_name in tensorflow.keras.applications.__dict__:
+        model = tensorflow.keras.applications.__dict__[model_name]
+    else:
+        raise Exception('Undefined dataset name: {}'.format(model_name))
+
+    model_params = {} if pretrained else {'weights': None}
+
+    return model, model_params
+

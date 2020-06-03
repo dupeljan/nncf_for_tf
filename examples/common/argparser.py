@@ -1,0 +1,98 @@
+"""
+ Copyright (c) 2020 Intel Corporation
+ Licensed under the Apache License, Version 2.0 (the "License");
+ you may not use this file except in compliance with the License.
+ You may obtain a copy of the License at
+      http://www.apache.org/licenses/LICENSE-2.0
+ Unless required by applicable law or agreed to in writing, software
+ distributed under the License is distributed on an "AS IS" BASIS,
+ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ See the License for the specific language governing permissions and
+ limitations under the License.
+"""
+
+from nncf.configs.config import CustomArgumentParser
+
+
+def get_common_argument_parser():
+    """Defines command-line arguments, and parses them.
+
+    """
+    parser = CustomArgumentParser()
+
+    parser.add_argument('-c', '--config', help='Path to a config file with task/model-specific parameters',
+                        required=True)
+
+    parser.add_argument(
+        "--mode",
+        "-m",
+        choices=['train', 'test', 'export'],
+        default='train',
+        help=("train: performs training and validation; test: tests the model"
+              "found in \"--save_dir\" with name \"--name\" on the validation split of \"--dataset\"; "))
+
+    parser.add_argument(
+        "--checkpoint-save-dir",
+        metavar='PATH',
+        type=str,
+        default=None,
+        help="Specifies the directory for the trained model checkpoints to be saved to")
+
+    execution_type = parser.add_mutually_exclusive_group()
+    execution_type.add_argument(
+        "--gpu-id",
+        type=int,
+        metavar='N',
+        help="The ID of the GPU training will be performed on, without any parallelization"
+    )
+    execution_type.add_argument(
+        "--distributed",
+        action='store_true',
+        help="Specifies that the computations should be distributed across multiple GPUs"
+             "available on the machine using TensorFlow MirroredStrategy"
+    )
+    execution_type.add_argument('--cpu-only', action='store_true',
+                                help='Specifies that the computation should be performed'
+                                     'using CPU only')
+
+    # Hyperparameters
+    parser.add_argument(
+        "--batch-size",
+        "-b",
+        type=int,
+        default=10,
+        metavar='N',
+        help="Batch size. Will be split equally between multiple GPUs in the "
+             "--multiprocessing-distributed mode."
+             "Default: 10")
+    parser.add_argument(
+        "--precision",
+        type=str,
+        default="float32",
+        help="Precision to use {bfloat16, float32}"
+             "Default: float32")
+
+    # Dataset
+    parser.add_argument(
+        "--data",
+        dest="dataset_dir",
+        type=str,
+        help="Path to the root directory of the selected dataset. ")
+
+    # Storage settings
+    parser.add_argument(
+        "--log-dir",
+        type=str,
+        default='runs',
+        help="The directory where models and TensorboardX summaries"
+             " are saved. Default: runs")
+
+    parser.add_argument('--save-checkpoint-freq', default=5, type=int,
+                        help='Checkpoint save frequency (epochs). Default: 5')
+
+    # Display
+    parser.add_argument('-p', '--print-freq', default=10, type=int,
+                        metavar='N', help='Print frequency (batch iterations). '
+                                          'Default: 10)')
+
+    return parser
