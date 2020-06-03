@@ -40,7 +40,6 @@ class DatasetBuilder:
 
         self._cache = False
         self._builder = None
-        self._download = False
         self._skip_decoding = True
         self._shuffle_buffer_size = 10000
         self._deterministic_train = False
@@ -123,8 +122,7 @@ class DatasetBuilder:
         self._builder = tfds.builder(self._dataset_name,
                                      data_dir=self._dataset_dir)
 
-        if self._download:
-            self._builder.download_and_prepare()
+        self._builder.download_and_prepare()
 
         decoders = {}
 
@@ -132,7 +130,7 @@ class DatasetBuilder:
             decoders['image'] = tfds.decode.SkipDecoding()
 
         read_config = tfds.ReadConfig(
-            interleave_parallel_reads=64,
+            interleave_cycle_length=64,
             interleave_block_length=1)
 
         dataset = self._builder.as_dataset(
