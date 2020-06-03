@@ -10,3 +10,16 @@
  See the License for the specific language governing permissions and
  limitations under the License.
 """
+
+import tensorflow_model_optimization as tfmot
+
+from ..algorithm_selector import COMPRESSION_ALGORITHMS
+
+@COMPRESSION_ALGORITHMS.register('quantization')
+def quantize(to_quantize, **kwarg):
+    quantize_model = tfmot.quantization.keras.quantize_model
+
+    quntaze_model = quantize_model(to_quantize)
+    callbacks = []
+
+    return quntaze_model, callbacks

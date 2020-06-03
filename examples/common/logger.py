@@ -10,3 +10,18 @@
  See the License for the specific language governing permissions and
  limitations under the License.
 """
+
+import logging
+import sys
+
+EXAMPLE_LOGGER_NAME = "example"
+
+logger = logging.getLogger(EXAMPLE_LOGGER_NAME)
+_LOGGER_INITIALIZED = False
+
+if not _LOGGER_INITIALIZED:
+    logger.setLevel(logging.INFO)
+    hdl = logging.StreamHandler(stream=sys.stdout)
+    hdl.setFormatter(logging.Formatter("%(message)s"))
+    hdl.setLevel(logging.INFO)
+    logger.addHandler(hdl)
