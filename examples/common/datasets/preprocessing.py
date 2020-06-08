@@ -279,7 +279,8 @@ def preprocess_for_eval(
         num_channels: int = 3,
         mean_subtract: bool = False,
         standardize: bool = False,
-        dtype: tf.dtypes.DType = tf.float32
+        dtype: tf.dtypes.DType = tf.float32,
+        preprocess_fn=None
 ) -> tf.Tensor:
     """Preprocesses the given image for evaluation.
 
@@ -290,12 +291,17 @@ def preprocess_for_eval(
       mean_subtract: whether or not to apply mean subtraction.
       standardize: whether or not to apply standardization.
       dtype: the dtype to convert the images to. Set to `None` to skip conversion.
+      preprocess_fn: function which applies value scaling preprocessing to image (tf.Tensor),
+      if preprocess_fn is specified, mean_subtract, standardize and dtype parameters will be ignored
 
     Returns:
       A preprocessed and normalized image `Tensor`.
     """
     images = decode_and_center_crop(image_bytes, image_size)
     images = tf.reshape(images, [image_size, image_size, num_channels])
+
+    if preprocess_fn:
+        return preprocess_fn(images)
 
     if mean_subtract:
         images = mean_image_subtraction(image_bytes=images, means=MEAN_RGB)
@@ -357,7 +363,8 @@ def preprocess_for_train(image_bytes: tf.Tensor,
                          augmenter: Optional[augment.ImageAugment] = None,
                          mean_subtract: bool = False,
                          standardize: bool = False,
-                         dtype: tf.dtypes.DType = tf.float32) -> tf.Tensor:
+                         dtype: tf.dtypes.DType = tf.float32,
+                         preprocess_fn=None) -> tf.Tensor:
     """Preprocesses the given image for training.
 
     Args:
@@ -368,12 +375,16 @@ def preprocess_for_train(image_bytes: tf.Tensor,
       mean_subtract: whether or not to apply mean subtraction.
       standardize: whether or not to apply standardization.
       dtype: the dtype to convert the images to. Set to `None` to skip conversion.
+      preprocess_fn: function which applies value scaling preprocessing to image (tf.Tensor),
+      if preprocess_fn is specified, augmenter, mean_subtract, standardize and dtype parameters will be ignored
 
     Returns:
       A preprocessed and normalized image `Tensor`.
     """
     images = decode_crop_and_flip(image_bytes=image_bytes)
     images = resize_image(images, height=image_size, width=image_size)
+    if preprocess_fn:
+        return preprocess_fn(images)
     if mean_subtract:
         images = mean_image_subtraction(image_bytes=images, means=MEAN_RGB)
     if standardize:
@@ -384,3 +395,20 @@ def preprocess_for_train(image_bytes: tf.Tensor,
         images = tf.image.convert_image_dtype(images, dtype)
 
     return images
+
+
+def get_preprocess_fn(model_name, dataset_name):
+    preprocess_fn_name_mapping = {
+        'imagenet2012': {
+            'InceptionV3': 'inception_v3',
+            'MobileNetV2': 'mobilenet_v2',
+            'ResNet50': 'resnet50',
+            'ResNet50V2': 'resnet_v2'
+        }
+    }
+    preprocess_fn = None
+    if model_name in preprocess_fn_name_mapping.get(dataset_name, []):
+        preprocess_fn_name = preprocess_fn_name_mapping[dataset_name][model_name]
+        preprocess_fn = tf.keras.applications.__dict__[preprocess_fn_name].preprocess_input
+
+    return preprocess_fn

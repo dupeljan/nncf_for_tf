@@ -177,13 +177,14 @@ def main(argv):
         'validation_freq': 1,
     }
 
-    compress_model.fit(
-        train_dataset,
-        epochs=train_epochs,
-        steps_per_epoch=train_steps,
-        initial_epoch=initial_epoch,
-        callbacks=callbacks,
-        **validation_kwargs)
+    if config.mode == 'train':
+        compress_model.fit(
+            train_dataset,
+            epochs=train_epochs,
+            steps_per_epoch=train_steps,
+            initial_epoch=initial_epoch,
+            callbacks=callbacks,
+            **validation_kwargs)
 
     compress_model.evaluate(
         validation_dataset,

@@ -11,13 +11,15 @@
  limitations under the License.
 """
 
+import functools
+
 import tensorflow as tf
 import tensorflow_datasets as tfds
 
 import examples.common.datasets.tfrecords as records_dataset
 from examples.common.logger import logger
 from examples.common.datasets.augment import create_augmenter
-from examples.common.datasets.preprocessing import preprocess_for_train, preprocess_for_eval
+from examples.common.datasets.preprocessing import preprocess_for_train, preprocess_for_eval, get_preprocess_fn
 
 
 class DatasetBuilder:
@@ -112,7 +114,7 @@ class DatasetBuilder:
             raise ValueError('Unknown builder type {}'.format(self._builder))
 
         dataset = builder()
-        dataset = self.pipeline(dataset)
+        dataset = self.pipeline(dataset, self.config.model)
 
         return dataset
 
@@ -155,7 +157,7 @@ class DatasetBuilder:
 
         return dataset
 
-    def pipeline(self, dataset):
+    def pipeline(self, dataset, model_name):
         if self.is_train and not self._cache:
             dataset = dataset.repeat()
 
@@ -170,9 +172,9 @@ class DatasetBuilder:
             dataset = dataset.repeat()
 
         if self._dataset_type == 'tfrecords':
-            preprocess = lambda record: self.preprocess(*(self._builder.decoder(record)))
+            preprocess = lambda record: self.preprocess(model_name, *(self._builder.decoder(record)))
         else:
-            preprocess = self.preprocess
+            preprocess = functools.partial(self.preprocess, model_name)
 
         dataset = dataset.map(preprocess,
                               num_parallel_calls=self._num_preprocess_workers)
@@ -193,7 +195,8 @@ class DatasetBuilder:
 
         return dataset
 
-    def preprocess(self, image: tf.Tensor, label: tf.Tensor):
+    def preprocess(self, model_name: str, image: tf.Tensor, label: tf.Tensor):
+        preprocess_fn = get_preprocess_fn(model_name, self._dataset_name)
         if self.is_train:
             image = preprocess_for_train(
                 image,
@@ -201,15 +204,17 @@ class DatasetBuilder:
                 mean_subtract=self._mean_subtract,
                 standardize=self._standardize,
                 dtype=self.dtype,
-                augmenter=self._augmenter)
+                augmenter=self._augmenter,
+                preprocess_fn=preprocess_fn
+            )
         else:
             image = preprocess_for_eval(
                 image,
                 image_size=self._image_size,
                 num_channels=self._num_channels,
-                mean_subtract=self._mean_subtract,
-                standardize=self._standardize,
-                dtype=self.dtype)
+                dtype=self.dtype,
+                preprocess_fn=preprocess_fn
+            )
 
         label = tf.cast(label, tf.int32)
         if self._one_hot:
