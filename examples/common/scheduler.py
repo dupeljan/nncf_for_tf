@@ -17,8 +17,6 @@ import tensorflow as tf
 
 from examples.common.logger import logger
 
-BASE_LEARNING_RATE = 0.1
-
 
 class WarmupDecaySchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
     """A wrapper for LearningRateSchedule that includes warmup steps."""
@@ -80,20 +78,17 @@ class PiecewiseConstantDecayWithWarmup(
             raise ValueError("The length of boundaries must be 1 less than the "
                              "length of multipliers")
 
-        base_lr_batch_size = 256
         steps_per_epoch = epoch_size // batch_size
 
-        self._rescaled_lr = BASE_LEARNING_RATE * batch_size / base_lr_batch_size
         self._step_boundaries = [float(steps_per_epoch) * x for x in boundaries]
-        self._lr_values = [self._rescaled_lr * m for m in multipliers]
+        self._lr_values = [m for m in multipliers]
         self._warmup_steps = warmup_epochs * steps_per_epoch
 
     def __call__(self, step: int):
         """Compute learning rate at given step."""
 
         def warmup_lr():
-            return self._rescaled_lr * (
-                    step / tf.cast(self._warmup_steps, tf.float32))
+            return step / tf.cast(self._warmup_steps, tf.float32)
 
         def piecewise_lr():
             return tf.compat.v1.train.piecewise_constant(

@@ -28,6 +28,7 @@ def prune(to_prune, config, **kwargs):
 
     callbacks = [
         tfmot.sparsity.keras.UpdatePruningStep(),
+        tfmot.sparsity.keras.PruningSummaries(log_dir=config.log_dir, update_freq=100, profile_batch=0)
     ]
 
     return prune_model, callbacks
