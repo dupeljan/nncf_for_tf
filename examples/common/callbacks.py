@@ -99,7 +99,7 @@ class CustomTensorBoard(tf.keras.callbacks.TensorBoard):
         self.step += 1
         if logs is None:
             logs = {}
-        logs.update(self._calculate_metrics(self.step))
+        logs.update(self._calculate_metrics())
         super(CustomTensorBoard, self).on_batch_begin(self.step, logs)
 
     def on_epoch_begin(self,
@@ -107,7 +107,7 @@ class CustomTensorBoard(tf.keras.callbacks.TensorBoard):
                        logs: MutableMapping[str, Any] = None) -> None:
         if logs is None:
             logs = {}
-        metrics = self._calculate_metrics(self.step)
+        metrics = self._calculate_metrics()
         logs.update(metrics)
         for k, v in metrics.items():
             logging.info('Current %s: %f', k, v)
@@ -118,19 +118,19 @@ class CustomTensorBoard(tf.keras.callbacks.TensorBoard):
                      logs: MutableMapping[str, Any] = None) -> None:
         if logs is None:
             logs = {}
-        metrics = self._calculate_metrics(self.step)
+        metrics = self._calculate_metrics()
         logs.update(metrics)
         super(CustomTensorBoard, self).on_epoch_end(epoch, logs)
 
-    def _calculate_metrics(self, step) -> MutableMapping[str, Any]:
+    def _calculate_metrics(self) -> MutableMapping[str, Any]:
         logs = {}
         if self._track_lr:
-          logs['learning_rate'] = self._calculate_lr(step)
+          logs['learning_rate'] = self._calculate_lr()
         return logs
 
-    def _calculate_lr(self, step) -> int:
+    def _calculate_lr(self) -> int:
         """Calculates the learning rate given the current step."""
-        return get_scalar_from_tensor(self._get_base_optimizer().lr(step)())
+        return get_scalar_from_tensor(self._get_base_optimizer().lr(self.step)())
 
     def _get_base_optimizer(self) -> tf.keras.optimizers.Optimizer:
         """Get the base optimizer used by the current model."""
