@@ -179,7 +179,7 @@ class DatasetBuilder:
         dataset = dataset.map(preprocess,
                               num_parallel_calls=self._num_preprocess_workers)
 
-        dataset = dataset.batch(self.batch_size, drop_remainder=self.is_train)
+        dataset = dataset.batch(self.global_batch_size, drop_remainder=self.is_train)
 
         if self.is_train and self._deterministic_train is not None:
             options = tf.data.Options()

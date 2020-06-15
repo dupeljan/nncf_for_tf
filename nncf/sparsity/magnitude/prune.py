@@ -19,16 +19,26 @@ from ...algorithm_selector import COMPRESSION_ALGORITHMS
 def prune(to_prune, config, **kwargs):
     prune_low_magnitude = tfmot.sparsity.keras.prune_low_magnitude
 
-    sparsity_target = config.get('params', {}).get('sparsity_target', 0.5)
+    config_params = config.get('params', {})
+    schedule_params = config_params.get('schedule_params', {})
+    schedule_type = config_params.get('schedule_type', 'constant_sparsity')
+    begin_step = schedule_params.get('begin_step', 0)
+    sparsity_target = schedule_params.get('sparsity_target', 0.5)
+    if schedule_type == 'polynomial_decay':
+        end_step = schedule_params['end_step']
+        initial_sparsity = schedule_params.get('initial_sparsity', 0)
+        pruning_schedule = tfmot.sparsity.keras.PolynomialDecay(initial_sparsity, sparsity_target, begin_step, end_step)
+    elif schedule_type == 'constant_sparsity':
+        pruning_schedule = tfmot.sparsity.keras.ConstantSparsity(sparsity_target, begin_step)
     prune_model = prune_low_magnitude(to_prune,
-                               pruning_schedule=tfmot.sparsity.keras.ConstantSparsity(sparsity_target, 0),
+                               pruning_schedule=pruning_schedule,
                                block_size=(1, 1),
                                block_pooling_type='AVG',
                                **kwargs)
 
     callbacks = [
         tfmot.sparsity.keras.UpdatePruningStep(),
-        tfmot.sparsity.keras.PruningSummaries(log_dir=config.log_dir, update_freq=100, profile_batch=0)
+        tfmot.sparsity.keras.PruningSummaries(log_dir=config.log_dir, profile_batch=0)
     ]
 
     return prune_model, callbacks

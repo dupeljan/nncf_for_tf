@@ -20,7 +20,18 @@ def get_distribution_strategy(config):
 
     gpu_id = config.get('gpu_id', None)
     if gpu_id is not None:
-        return tf.distribute.OneDeviceStrategy("device:GPU:{}".format(gpu_id))
+        gpus = tf.config.experimental.list_physical_devices('GPU')
+        gpu_name = "device:GPU:{}".format(gpu_id)
+        gpu = [gpu for gpu in gpus if gpu.name.endswith(gpu_name)][0]
+        tf.config.experimental.set_visible_devices(gpu, 'GPU')
+        return tf.distribute.OneDeviceStrategy(gpu_name)
+
+    devices = config.get('devices', None)
+    if devices:
+        gpus = [gpu for gpu in tf.config.experimental.list_physical_devices('GPU')
+                if any(gpu.name.lower().endswith(device.lower()[-5:]) for device in devices)]
+        tf.config.experimental.set_visible_devices(gpus, 'GPU')
+        return tf.distribute.MirroredStrategy()
 
     distributed = config.get('distributed', False)
     if distributed:
