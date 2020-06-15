@@ -50,6 +50,13 @@ class WarmupDecaySchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
                          lambda: lr)
         return lr
 
+    def get_config(self):
+        config = self._lr_schedule.get_config()
+        config.update({
+            "warmup_steps": self._warmup_steps,
+        })
+        return config
+
 
 # tf.keras.optimizers.schedules.PiecewiseConstantDecay + WarmupDecaySchedule.
 class PiecewiseConstantDecayWithWarmup(
@@ -95,6 +102,14 @@ class PiecewiseConstantDecayWithWarmup(
                 tf.cast(step, tf.float32), self._step_boundaries, self._lr_values)
 
         return tf.cond(step < self._warmup_steps, warmup_lr, piecewise_lr)
+
+    def get_config(self):
+        return {
+            "rescaled_lr": self._rescaled_lr,
+            "step_boundaries": self._step_boundaries,
+            "lr_values": self._lr_values,
+            "warmup_steps": self._warmup_steps,
+        }
 
 
 def build_scheduler(config, epoch_size, batch_size, steps):
