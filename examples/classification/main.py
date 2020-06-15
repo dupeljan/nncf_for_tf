@@ -189,8 +189,10 @@ def main(argv):
     compress_model.evaluate(
         validation_dataset,
         steps=validation_steps,
-        verbose=2)
+        verbose=1)
 
+    if config.mode == 'train':
+        compress_model.save(osp.join(config.log_dir, "compressed_model.h5"))
 
 if __name__ == '__main__':
     main(sys.argv[1:])
