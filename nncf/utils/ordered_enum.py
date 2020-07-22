@@ -10,3 +10,19 @@
  See the License for the specific language governing permissions and
  limitations under the License.
 """
+
+import functools
+from enum import Enum
+
+
+@functools.total_ordering
+class OrderedEnum(Enum):
+    def __eq__(self, other):
+        if self.__class__ is other.__class__:
+            return self.value == other.value
+        return NotImplemented
+
+    def __lt__(self, other):
+        if self.__class__ is other.__class__:
+            return self.value < other.value
+        return NotImplemented

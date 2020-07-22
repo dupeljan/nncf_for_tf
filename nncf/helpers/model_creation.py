@@ -10,3 +10,12 @@
  See the License for the specific language governing permissions and
  limitations under the License.
 """
+
+from ..algorithm_selector import create_compression_algorithm_builder
+
+
+def create_compressed_model(model, config):
+    builder = create_compression_algorithm_builder(config)
+    compressed_model = builder.apply_to(model)
+    compression_ctrl = builder.build_controller(compressed_model)
+    return compression_ctrl, compressed_model

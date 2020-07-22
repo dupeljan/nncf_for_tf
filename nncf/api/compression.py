@@ -12,6 +12,7 @@
 """
 
 from ..graph.model_transformer import ModelTransformer
+from ..graph.transformations.layout import TransformationLayout
 from ..configs.config import Config
 
 
@@ -159,7 +160,7 @@ class CompressionAlgorithmController:
 
     def export_model(self, save_path, model_name=None):
         """
-        Used to export the compressed model into the IR format.
+        Used to export the compressed model to the IR format.
         Makes method-specific preparations of the model,
         (e.g. removing auxiliary layers that were used for the model compression),
         then exports the model as IR in specified path.
@@ -195,11 +196,11 @@ class CompressionAlgorithmBuilder:
         transformation_layout = self._get_transformation_layout(model)
         return ModelTransformer(model, transformation_layout).transform()
 
-    def build_controller(self, model) -> CompressionAlgorithmController:
+    def build_controller(self, model):
         """
         Should be called once the compressed model target_model is fully constructed
         """
         return CompressionAlgorithmController(model)
 
     def _get_transformation_layout(self, model):
-        raise NotImplementedError
+        return TransformationLayout()
