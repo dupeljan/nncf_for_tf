@@ -16,9 +16,9 @@ from __future__ import division
 from __future__ import print_function
 
 import math
-import tensorflow as tf
 from typing import Any, Dict, Iterable, List, Optional, Text, Tuple, Union
 
+import tensorflow as tf
 from tensorflow.python.keras.layers.preprocessing import image_preprocessing as image_ops
 
 # This signifies the max integer that the controller RNN could predict for the
@@ -45,15 +45,14 @@ def to_4d(image: tf.Tensor) -> tf.Tensor:
     """
     shape = tf.shape(image)
     original_rank = tf.rank(image)
-    left_pad = tf.cast(tf.less_equal(original_rank, 3), dtype=tf.int32)
-    right_pad = tf.cast(tf.equal(original_rank, 2), dtype=tf.int32)
+    left_pad = tf.cast(tf.less_equal(original_rank, 3), tf.int32)
+    right_pad = tf.cast(tf.equal(original_rank, 2), tf.int32)
     new_shape = tf.concat(
         [
             tf.ones(shape=left_pad, dtype=tf.int32),
             shape,
             tf.ones(shape=right_pad, dtype=tf.int32),
-        ],
-        axis=0,
+        ], 0
     )
     return tf.reshape(image, new_shape)
 
@@ -61,8 +60,8 @@ def to_4d(image: tf.Tensor) -> tf.Tensor:
 def from_4d(image: tf.Tensor, ndims: int) -> tf.Tensor:
     """Converts a 4D image back to `ndims` rank."""
     shape = tf.shape(image)
-    begin = tf.cast(tf.less_equal(ndims, 3), dtype=tf.int32)
-    end = 4 - tf.cast(tf.equal(ndims, 2), dtype=tf.int32)
+    begin = tf.cast(tf.less_equal(ndims, 3), tf.int32)
+    end = 4 - tf.cast(tf.equal(ndims, 2), tf.int32)
     new_shape = shape[begin:end]
     return tf.reshape(image, new_shape)
 
@@ -92,14 +91,14 @@ def _convert_translation_to_transform(translations) -> tf.Tensor:
     translations = tf.convert_to_tensor(translations, dtype=tf.float32)
     if translations.get_shape().ndims is None:
         raise TypeError('translations rank must be statically known')
-    elif len(translations.get_shape()) == 1:
+    if len(translations.get_shape()) == 1:
         translations = translations[None]
     elif len(translations.get_shape()) != 2:
         raise TypeError('translations should have rank 1 or 2.')
     num_translations = tf.shape(translations)[0]
 
     return tf.concat(
-        values=[
+        [
             tf.ones((num_translations, 1), tf.dtypes.float32),
             tf.zeros((num_translations, 1), tf.dtypes.float32),
             -translations[:, 0, None],
@@ -107,8 +106,7 @@ def _convert_translation_to_transform(translations) -> tf.Tensor:
             tf.ones((num_translations, 1), tf.dtypes.float32),
             -translations[:, 1, None],
             tf.zeros((num_translations, 2), tf.dtypes.float32),
-        ],
-        axis=1,
+        ], 1
     )
 
 
@@ -132,7 +130,7 @@ def _convert_angles_to_transform(
 
     """
     angles = tf.convert_to_tensor(angles, dtype=tf.float32)
-    if len(angles.get_shape()) == 0:  # pylint:disable=g-explicit-length-test
+    if len(angles.get_shape()) == 0:  # pylint: disable=E0011
         angles = angles[None]
     elif len(angles.get_shape()) != 1:
         raise TypeError('Angles should have a rank 0 or 1.')
@@ -144,7 +142,7 @@ def _convert_angles_to_transform(
                  (image_height - 1))) / 2.0
     num_angles = tf.shape(angles)[0]
     return tf.concat(
-        values=[
+        [
             tf.math.cos(angles)[:, None],
             -tf.math.sin(angles)[:, None],
             x_offset[:, None],
@@ -152,8 +150,7 @@ def _convert_angles_to_transform(
             tf.math.cos(angles)[:, None],
             y_offset[:, None],
             tf.zeros((num_angles, 2), tf.dtypes.float32),
-        ],
-        axis=1,
+        ], 1
     )
 
 
@@ -251,7 +248,7 @@ def blend(image1: tf.Tensor, image2: tf.Tensor, factor: float) -> tf.Tensor:
     temp = tf.cast(image1, tf.float32) + scaled
 
     # Interpolate
-    if factor > 0.0 and factor < 1.0:
+    if 0.0 < factor < 1.0:
         # Interpolation means we always stay within 0 and 255.
         return tf.cast(temp, tf.uint8)
 
@@ -284,13 +281,8 @@ def cutout(image: tf.Tensor, pad_size: int, replace: int = 0) -> tf.Tensor:
     image_width = tf.shape(image)[1]
 
     # Sample the center location in the image where the zero mask will be applied.
-    cutout_center_height = tf.random.uniform(
-        shape=[], minval=0, maxval=image_height,
-        dtype=tf.int32)
-
-    cutout_center_width = tf.random.uniform(
-        shape=[], minval=0, maxval=image_width,
-        dtype=tf.int32)
+    cutout_center_height = tf.random.uniform([], 0, image_height, tf.int32)
+    cutout_center_width = tf.random.uniform([], 0, image_width, tf.int32)
 
     lower_pad = tf.maximum(0, cutout_center_height - pad_size)
     upper_pad = tf.maximum(0, image_height - cutout_center_height - pad_size)
@@ -428,7 +420,7 @@ def autocontrast(image: tf.Tensor) -> tf.Tensor:
         # Scale the image, making the lowest value 0 and the highest value 255.
         def scale_values(im):
             scale = 255.0 / (hi - lo)
-            offset = -lo * scale
+            offset = -1.0 * lo * scale
             im = tf.cast(im, tf.float32) * scale + offset
             im = tf.clip_by_value(im, 0.0, 255.0)
             return tf.cast(im, tf.uint8)
@@ -466,8 +458,8 @@ def sharpness(image: tf.Tensor, factor: float) -> tf.Tensor:
     # For the borders of the resulting image, fill in the values of the
     # original image.
     mask = tf.ones_like(degenerate)
-    padded_mask = tf.pad(mask, [[1, 1], [1, 1], [0, 0]])
-    padded_degenerate = tf.pad(degenerate, [[1, 1], [1, 1], [0, 0]])
+    padded_mask = tf.pad(mask, [[1, 1], [1, 1], [0, 0]]) # pylint: disable=E1120
+    padded_degenerate = tf.pad(degenerate, [[1, 1], [1, 1], [0, 0]]) # pylint: disable=E1120
     result = tf.where(tf.equal(padded_mask, 1), padded_degenerate, orig_image)
 
     # Blend the final result.
@@ -485,13 +477,13 @@ def equalize(image: tf.Tensor) -> tf.Tensor:
 
         # For the purposes of computing the step, filter out the nonzeros.
         nonzero = tf.where(tf.not_equal(histo, 0))
-        nonzero_histo = tf.reshape(tf.gather(histo, nonzero), [-1])
+        nonzero_histo = tf.reshape(tf.gather(histo, nonzero), [-1]) # pylint: disable=E1120
         step = (tf.reduce_sum(nonzero_histo) - nonzero_histo[-1]) // 255
 
         def build_lut(histo, step):
             # Compute the cumulative sum, shifting by step // 2
             # and then normalization by step.
-            lut = (tf.cumsum(histo) + (step // 2)) // step
+            lut = (tf.cumsum(histo) + (step // 2)) // step # pylint: disable=E1120
             # Shift lut, prepending with 0.
             lut = tf.concat([[0], lut[:-1]], 0)
             # Clip the counts to be in range.  This is done
@@ -502,7 +494,7 @@ def equalize(image: tf.Tensor) -> tf.Tensor:
         # lut from the full histogram and step and then index from it.
         result = tf.cond(tf.equal(step, 0),
                          lambda: im,
-                         lambda: tf.gather(build_lut(histo, step), im))
+                         lambda: tf.gather(build_lut(histo, step), im)) # pylint: disable=E1120
 
         return tf.cast(result, tf.uint8)
 
@@ -525,7 +517,7 @@ def wrap(image: tf.Tensor) -> tf.Tensor:
     """Returns 'image' with an extra channel set to all 1s."""
     shape = tf.shape(image)
     extended_channel = tf.ones([shape[0], shape[1], 1], image.dtype)
-    extended = tf.concat([image, extended_channel], axis=2)
+    extended = tf.concat([image, extended_channel], 2)
     return extended
 
 
@@ -569,7 +561,7 @@ def unwrap(image: tf.Tensor, replace: int) -> tf.Tensor:
 
 def _randomly_negate_tensor(tensor):
     """With 50% prob turn the tensor negative."""
-    should_flip = tf.cast(tf.floor(tf.random.uniform([]) + 0.5), tf.bool)
+    should_flip = tf.cast(tf.floor(tf.random.uniform([]) + 0.5), tf.bool) # pylint: disable=E1120
     final_tensor = tf.cond(should_flip, lambda: tensor, lambda: -tensor)
     return final_tensor
 
@@ -630,7 +622,7 @@ def _apply_func_with_prob(func: Any,
 
 def select_and_apply_random_policy(policies: Any, image: tf.Tensor):
     """Select a random policy from `policies` and apply it to `image`."""
-    policy_to_select = tf.random.uniform([], maxval=len(policies), dtype=tf.int32)
+    policy_to_select = tf.random.uniform([], 0, len(policies), tf.int32)
     # Note that using tf.case instead of tf.conds would result in significantly
     # larger graphs and would even break export for some larger policies.
     for (i, policy) in enumerate(policies):
@@ -719,7 +711,7 @@ def _parse_policy_info(name: Text,
     return func, prob, args
 
 
-class ImageAugment(object):
+class ImageAugment:
     """Image augmentation class for applying image distortions."""
 
     def distort(self, image: tf.Tensor) -> tf.Tensor:
@@ -796,7 +788,7 @@ class AutoAugment(ImageAugment):
 
         if input_image_type != tf.uint8:
             image = tf.clip_by_value(image, 0.0, 255.0)
-            image = tf.cast(image, dtype=tf.uint8)
+            image = tf.cast(image, tf.uint8)
 
         replace_value = [128] * 3
 
@@ -831,7 +823,7 @@ class AutoAugment(ImageAugment):
             tf_policies.append(make_final_policy(tf_policy))
 
         image = select_and_apply_random_policy(tf_policies, image)
-        image = tf.cast(image, dtype=input_image_type)
+        image = tf.cast(image, input_image_type)
         return image
 
     @staticmethod

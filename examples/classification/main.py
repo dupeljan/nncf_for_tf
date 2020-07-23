@@ -13,8 +13,9 @@
 
 import sys
 import os.path as osp
-import tensorflow as tf
 from pathlib import Path
+
+import tensorflow as tf
 
 from examples.common.logger import logger
 from examples.common.distributed import get_distribution_strategy, get_strategy_scope
@@ -81,11 +82,10 @@ def get_metrics(one_hot=True):
             tf.keras.metrics.CategoricalAccuracy(name='acc@1'),
             tf.keras.metrics.TopKCategoricalAccuracy(k=5, name='acc@5')
         ]
-    else:
-        return [
-            tf.keras.metrics.SparseCategoricalAccuracy(name='acc@1'),
-            tf.keras.metrics.SparseTopKCategoricalAccuracy(k=5, name='acc@5')
-        ]
+    return [
+        tf.keras.metrics.SparseCategoricalAccuracy(name='acc@1'),
+        tf.keras.metrics.SparseTopKCategoricalAccuracy(k=5, name='acc@5')
+    ]
 
 
 def resume_from_checkpoint(model, model_dir, train_steps):
@@ -96,8 +96,8 @@ def resume_from_checkpoint(model, model_dir, train_steps):
         logger.info('No checkpoint detected.')
         return 0
 
-    logger.info('Checkpoint file {} found and restoring from '
-                 'checkpoint'.format(latest_checkpoint))
+    logger.info('Checkpoint file {} found and restoring from checkpoint'
+                .format(latest_checkpoint))
     model.load_weights(latest_checkpoint)
     initial_epoch = model.optimizer.iterations // train_steps
     logger.info('Completed loading from checkpoint.')

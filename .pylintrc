@@ -6,8 +6,12 @@ disable = arguments-differ,
           missing-docstring,
           no-self-use,
           too-few-public-methods,
+          too-many-arguments,
+          too-many-instance-attributes,
+          too-many-locals
 max-line-length = 120
 ignore-docstrings = yes
+ignored-modules = numpy,tensorflow
 
 [SIMILARITIES]
 ignore-imports = yes

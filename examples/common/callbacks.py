@@ -13,16 +13,15 @@
 
 from __future__ import absolute_import
 from __future__ import division
-# from __future__ import google_type_annotations
 from __future__ import print_function
 
 import os
-from absl import logging
-
-import tensorflow as tf
 from typing import Any, List, MutableMapping
 
-from official.utils.misc import keras_utils
+import tensorflow as tf
+from absl import logging
+
+from examples.common.utils import TimeHistory
 
 
 def get_callbacks(model_checkpoint: bool = True,
@@ -51,7 +50,7 @@ def get_callbacks(model_checkpoint: bool = True,
                 write_images=write_model_weights))
     if time_history:
         callbacks.append(
-            keras_utils.TimeHistory(
+            TimeHistory(
                 batch_size,
                 log_steps,
                 logdir=model_dir if include_tensorboard else None))
@@ -63,8 +62,7 @@ def get_scalar_from_tensor(t: tf.Tensor) -> int:
     t = tf.keras.backend.get_value(t)
     if callable(t):
         return t()
-    else:
-        return t
+    return t
 
 
 class CustomTensorBoard(tf.keras.callbacks.TensorBoard):
@@ -94,7 +92,7 @@ class CustomTensorBoard(tf.keras.callbacks.TensorBoard):
         self._track_lr = track_lr
 
     def on_batch_begin(self,
-                       epoch: int,
+                       epoch: int, # pylint: disable=W0613
                        logs: MutableMapping[str, Any] = None) -> None:
         self.step += 1
         if logs is None:
@@ -125,7 +123,7 @@ class CustomTensorBoard(tf.keras.callbacks.TensorBoard):
     def _calculate_metrics(self) -> MutableMapping[str, Any]:
         logs = {}
         if self._track_lr:
-          logs['learning_rate'] = self._calculate_lr()
+            logs['learning_rate'] = self._calculate_lr()
         return logs
 
     def _calculate_lr(self) -> int:

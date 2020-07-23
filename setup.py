@@ -36,7 +36,14 @@ def find_version(*file_paths):
     raise RuntimeError("Unable to find version string.")
 
 
-INSTALL_REQUIRES = []
+INSTALL_REQUIRES = [
+    "addict",
+    "networkx",
+    "tensorflow==2.2.0",
+    "tensorflow_model_optimization==0.3.0",
+    "tensorflow_datasets",
+    "tensorflow_addons"
+]
 
 
 DEPENDENCY_LINKS = []

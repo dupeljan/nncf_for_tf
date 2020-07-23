@@ -23,4 +23,3 @@ def get_model(model_name, pretrained):
     model_params = {} if pretrained else {'weights': None}
 
     return model, model_params
-
