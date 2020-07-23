@@ -29,7 +29,6 @@ class NNCFOperation:
         :param layer: NNCF Wrapper layer, where the operation is registered
         :return: weights dictionary {weight name: weight value}
         """
-        pass
 
     def call(self, inputs, weights, training):
         """
@@ -42,24 +41,19 @@ class NNCFOperation:
         :return: output tensors
         """
         raise NotImplementedError
-    
-    
+
     def __call__(self, *args, **kwargs):
         return self.call(*args, **kwargs)
-    
-    
+
     def __eq__(self, other):
         return self.__class__ is other.__class__
-    
-    
+
     def __ne__(self, other):
         return not self.__eq__(other)
-    
-    
+
     def get_config(self):
         return {}
-    
-    
+
     @classmethod
     def from_config(cls, config):
         return cls(**config)

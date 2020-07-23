@@ -35,3 +35,5 @@ def create_compression_algorithm_builder(config):
 
     if isinstance(compression_config, dict):
         return partial(get_compression_algorithm(compression_config), config=compression_config)
+
+    return None

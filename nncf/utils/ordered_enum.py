@@ -19,10 +19,10 @@ from enum import Enum
 class OrderedEnum(Enum):
     def __eq__(self, other):
         if self.__class__ is other.__class__:
-            return self.value == other.value
+            return self.value == other.value # pylint: disable=W0143
         return NotImplemented
 
     def __lt__(self, other):
         if self.__class__ is other.__class__:
-            return self.value < other.value
+            return self.value < other.value # pylint: disable=W0143
         return NotImplemented

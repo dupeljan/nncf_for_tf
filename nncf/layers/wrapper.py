@@ -96,10 +96,7 @@ class NNCFWrapper(tf.keras.layers.Wrapper):
         for weight_attr, ops in self.weights_attr_ops.items():
             weight = self._get_weight(weight_attr)
             for op_name, op in ops.items():
-                self._ops_weights[op_name] = op.build(weight.shape,
-                                                     weight_attr,
-                                                     self)
-
+                self._ops_weights[op_name] = op.build(weight.shape, weight_attr, self)
             self._layer_weights[weight_attr] = weight
             self._trainable_weights.append(weight)
 
