@@ -20,13 +20,13 @@ COMPRESSION_ALGORITHMS = Registry('compression algorithm')
 
 
 @COMPRESSION_ALGORITHMS.register('NoCompressionAlgorithm')
-def no_compression(model, **kwarg):
+def no_compression(model):
     return model, list()
 
 
 def get_compression_algorithm(config):
     algorithm_key = config.get('algorithm', 'NoCompressionAlgorithm')
-    logger.info("Creating compression algorithm: {}".format(algorithm_key))
+    logger.info('Creating compression algorithm: {}'.format(algorithm_key))
     return COMPRESSION_ALGORITHMS.get(algorithm_key)
 
 

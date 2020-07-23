@@ -21,7 +21,7 @@ from ..layers.custom_objects import get_nncf_custom_objects
 from ..layers.wrapper import NNCFWrapper
 
 
-class ModelTransformer(object):
+class ModelTransformer:
     """
     Applies transformations to a Keras model graph.
     """

@@ -63,6 +63,10 @@ class NNCFWrapper(tf.keras.layers.Wrapper):
         #     self._batch_input_shape = self.layer._batch_input_shape
 
         self._init_layer_call_fn_args()
+        self._trainable_weights = []
+        self._non_trainable_weights = []
+        self._ops_weights = {}
+        self._layer_weights = {}
 
     @property
     def trainable(self):
@@ -88,11 +92,9 @@ class NNCFWrapper(tf.keras.layers.Wrapper):
     def losses(self):
         return self.layer.losses + self._losses
 
-    def build(self, input_shape):
+    def build(self, input_shape=None):
         super(NNCFWrapper, self).build(input_shape)
 
-        self._ops_weights = {}
-        self._layer_weights = {}
         for weight_attr, ops in self.weights_attr_ops.items():
             weight = self._get_weight(weight_attr)
             for op_name, op in ops.items():
@@ -162,19 +164,19 @@ class NNCFWrapper(tf.keras.layers.Wrapper):
         return config
 
     @classmethod
-    def from_config(cls, config):
+    def from_config(cls, config, custom_objects=None):
         config = config.copy()
 
         weights_attr_ops_config = config.pop('weights_attr_operations')
 
-        layer = tf.keras.layers.deserialize(config.pop('layer'))
+        layer = tf.keras.layers.deserialize(config.pop('layer'), custom_objects=custom_objects)
         wrapper = cls(layer=layer, **config)
 
         for weights_attr, operations in weights_attr_ops_config.items():
             for op_config in operations:
                 wrapper.registry_weight_operation(weights_attr, tf.keras.layers.deserialize(
                     op_config,
-                    custom_objects = get_nncf_custom_objects()
+                    custom_objects=get_nncf_custom_objects()
                 ))
 
         return wrapper

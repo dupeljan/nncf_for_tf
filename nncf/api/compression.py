@@ -12,7 +12,6 @@
 """
 
 from ..graph.model_transformer import ModelTransformer
-from ..graph.transformations.layout import TransformationLayout
 from ..configs.config import Config
 
 
@@ -77,7 +76,6 @@ class CompressionScheduler:
         Arguments:
              step: training step
         """
-        pass
 
     def __call__(self, *args, **kwargs):
         """
@@ -203,4 +201,8 @@ class CompressionAlgorithmBuilder:
         return CompressionAlgorithmController(model)
 
     def _get_transformation_layout(self, model):
-        return TransformationLayout()
+        """
+        Returns an object of the TransformationLayout class containing a list of
+        algorithm-specific modifications
+        """
+        raise NotImplementedError

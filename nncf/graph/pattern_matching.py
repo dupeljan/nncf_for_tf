@@ -30,7 +30,7 @@ def powerset(iterable, min_r=1, max_r=None):
 
 class Expression:
     def _match(self, nodes, graph):
-        return NotImplementedError
+        raise NotImplementedError
 
     def __add__(self, other):
         return ConcatExpression([self, other])
