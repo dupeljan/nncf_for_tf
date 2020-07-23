@@ -216,7 +216,9 @@ def get_edge_boundaries(match: List[str], graph: nx.DiGraph):
 
 
 def search_all(graph: nx.DiGraph, expression: Expression) -> List[List[str]]:
-    """Returns list of node key lists that match the expression."""
+    """
+    Returns list of node key lists that match the expression.
+    """
     matches = []
     matched_nodes = set()
     weakly_subgraphs = [graph.subgraph(c) for c in nx.weakly_connected_components(graph)]

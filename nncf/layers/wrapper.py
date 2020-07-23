@@ -28,8 +28,9 @@ class NNCFWrapper(tf.keras.layers.Wrapper):
     def __init__(self, layer, **kwargs):
         """
         Create a pruning wrapper for a keras layer.
-        :param layer: The keras layer to be wrapped
-        :param kwargs: Additional keyword arguments to be passed to the keras layer.
+
+        :param layer: the keras layer to be wrapped
+        :param kwargs: additional keyword arguments to be passed to the keras layer.
         """
         if layer is None:
             raise ValueError('`layer` cannot be None.')

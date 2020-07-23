@@ -73,7 +73,9 @@ class CustomArgumentParser(CustomActionContainer, argparse.ArgumentParser):
 
 
 class Config(Dict):
-    """A regular dictionary object extended with some utility functions."""
+    """
+    A regular dictionary object extended with some utility functions.
+    """
     def __getattr__(self, item):
         if item not in self:
             raise KeyError("Key {} not found in config".format(item))

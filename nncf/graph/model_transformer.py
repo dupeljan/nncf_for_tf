@@ -22,7 +22,16 @@ from ..layers.wrapper import NNCFWrapper
 
 
 class ModelTransformer(object):
+    """
+    Applies transformations to a Keras model graph.
+    """
     def __init__(self, model, transformation_layout):
+        """
+        Constructor
+
+        :param model: Keras model to be transformed
+        :param transformation_layout: list of transformations
+        """
         if not is_sequential_or_functional_model(model):
             raise ValueError(
                 'Only tf.keras sequential or functional models can be transformed.')
@@ -35,6 +44,10 @@ class ModelTransformer(object):
         self._transformations = transformation_layout.transformations
 
     def transform(self):
+        """ Applies transformations to the Keras model.
+
+        :return: transformed Keras model
+        """
         layer_weights_map = {}
         for layer in self._model.layers:
             layer_weights_map[layer.name] = self._get_layer_weights(layer)
@@ -137,7 +150,7 @@ class ModelTransformer(object):
 
     def _replace_sequential(self, layer_name, raplace_layer_config):
         idx, _ = self._find_layer_config(layer_name)
-        self._model_configp['layers'][idx] = raplace_layer_config
+        self._model_config['layers'][idx] = raplace_layer_config
 
     def _insert_layers_after(self, layer_name, layers):
         layer_configs = []

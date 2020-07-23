@@ -17,6 +17,12 @@ from .utils import is_functional_model, is_sequential_model
 
 
 def convert_keras_model_to_nxmodel(model):
+    """
+    Convert Keras model graph to the NetworkX directed graph
+
+    :param model: Keras model
+    :return: NetworkX directed graph
+    """
     func_model = is_functional_model(model)
     seq_model = is_sequential_model(model)
 

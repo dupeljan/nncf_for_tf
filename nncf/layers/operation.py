@@ -23,6 +23,7 @@ class NNCFOperation:
         This method can be used to create weights that depend on the shape(s)
         of the input(s) and register them in the NNCF Wrapper `layer`. The method
         will be automatically called when NNCF Wrapper `layer` is built.
+
         :param input_shape: shape of the input
         :param name: operation name
         :param layer: NNCF Wrapper layer, where the operation is registered
@@ -34,6 +35,7 @@ class NNCFOperation:
         """
         The method performs the logic of applying the operation to the input tensors
         (which should be passed in as argument).
+
         :param inputs: input tensors
         :param weights: operation weights
         :param training: identifying that the model is training or evaluating

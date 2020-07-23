@@ -35,7 +35,18 @@ class TargetType(OrderedEnum):
 
 
 class TargetPoint:
+    """
+    The base class for all TargetPoints
+
+    TargetPoint specifies the object in the model graph to which the
+    transformation command will be applied. It can be layer, weight and etc.
+    """
     def __init__(self, target_type):
+        """
+        Constructor
+
+        :param target_type: target point type
+        """
         self._target_type = target_type
 
     @property
@@ -55,7 +66,17 @@ class TargetPoint:
 
 
 class TransformationCommand:
+    """
+    The base class for all transformation commands
+    """
     def __init__(self, command_type, target_point):
+        """
+        Constructor
+
+        :param command_type: transformation command type
+        :param target_point: target point, the object in the model
+        to which the transformation command will be applied.
+        """
         self._command_type = command_type
         self._target_point = target_point
 
