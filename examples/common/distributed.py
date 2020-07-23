@@ -41,13 +41,12 @@ def get_distribution_strategy(config):
 
 
 def get_strategy_scope(strategy):
-  return strategy.scope() if strategy else DummyContextManager()
+    return strategy.scope() if strategy else DummyContextManager()
 
 
-class DummyContextManager(object):
+class DummyContextManager:
+    def __enter__(self):
+        pass
 
-  def __enter__(self):
-    pass
-
-  def __exit__(self, *args):
-    pass
+    def __exit__(self, *args):
+        pass

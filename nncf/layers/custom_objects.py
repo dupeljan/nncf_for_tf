@@ -10,3 +10,11 @@
  See the License for the specific language governing permissions and
  limitations under the License.
 """
+
+from ..utils.registry import Registry
+
+NNCF_CUSTOM_OBJECTS = Registry('NNCF Custom Objects')
+
+
+def get_nncf_custom_objects():
+    return NNCF_CUSTOM_OBJECTS.registry_dict

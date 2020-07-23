@@ -92,15 +92,17 @@ class DatasetBuilder:
     def num_examples(self):
         if self._dataset_type == 'tfds':
             return self._builder.info.splits[self._split].num_examples
-        elif self._dataset_type == 'tfrecords':
+        if self._dataset_type == 'tfrecords':
             return self._builder.num_examples
+        return None
 
     @property
     def num_classes(self):
         if self._dataset_type == 'tfds':
             return self._builder.info.features['label'].num_classes
-        elif self._dataset_type == 'tfrecords':
+        if self._dataset_type == 'tfrecords':
             return self._builder.num_classes
+        return None
 
     def build(self):
         builders = {
@@ -218,7 +220,7 @@ class DatasetBuilder:
 
         label = tf.cast(label, tf.int32)
         if self._one_hot:
-            label = tf.one_hot(label, self.num_classes)
+            label = tf.one_hot(label, self.num_classes) # pylint: disable=E1120
             label = tf.reshape(label, [self.num_classes])
 
         return image, label

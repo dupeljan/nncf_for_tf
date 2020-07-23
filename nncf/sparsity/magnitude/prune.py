@@ -31,10 +31,10 @@ def prune(to_prune, config, **kwargs):
     elif schedule_type == 'constant_sparsity':
         pruning_schedule = tfmot.sparsity.keras.ConstantSparsity(sparsity_target, begin_step)
     prune_model = prune_low_magnitude(to_prune,
-                               pruning_schedule=pruning_schedule,
-                               block_size=(1, 1),
-                               block_pooling_type='AVG',
-                               **kwargs)
+                                      pruning_schedule=pruning_schedule,
+                                      block_size=(1, 1),
+                                      block_pooling_type='AVG',
+                                      **kwargs)
 
     callbacks = [
         tfmot.sparsity.keras.UpdatePruningStep(),

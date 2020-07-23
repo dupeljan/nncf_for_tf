@@ -10,3 +10,27 @@
  See the License for the specific language governing permissions and
  limitations under the License.
 """
+
+import tensorflow as tf
+
+
+def is_sequential_or_functional_model(model):
+    return is_sequential_model(model) or is_functional_model(model)
+
+
+def is_sequential_model(model):
+    return isinstance(model, tf.keras.Sequential)
+
+
+def is_functional_model(model):
+    return isinstance(model, tf.keras.Model) \
+           and not isinstance(model, tf.keras.Sequential) \
+           and getattr(model, '_is_graph_network', False)
+
+
+def get_custom_objects(_):
+    return {}
+
+
+def get_weight_name(name):
+    return name.split('/')[-1]

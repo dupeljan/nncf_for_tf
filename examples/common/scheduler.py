@@ -59,8 +59,7 @@ class WarmupDecaySchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
 
 
 # tf.keras.optimizers.schedules.PiecewiseConstantDecay + WarmupDecaySchedule.
-class PiecewiseConstantDecayWithWarmup(
-    tf.keras.optimizers.schedules.LearningRateSchedule):
+class PiecewiseConstantDecayWithWarmup(tf.keras.optimizers.schedules.LearningRateSchedule):
     """Piecewise constant decay with warmup schedule."""
 
     def __init__(self,
@@ -88,7 +87,7 @@ class PiecewiseConstantDecayWithWarmup(
         steps_per_epoch = epoch_size // batch_size
 
         self._step_boundaries = [float(steps_per_epoch) * x for x in boundaries]
-        self._lr_values = [m for m in multipliers]
+        self._lr_values = multipliers
         self._warmup_steps = warmup_epochs * steps_per_epoch
 
     def __call__(self, step: int):

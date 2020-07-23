@@ -16,7 +16,7 @@ import tensorflow_model_optimization as tfmot
 from ..algorithm_selector import COMPRESSION_ALGORITHMS
 
 @COMPRESSION_ALGORITHMS.register('quantization')
-def quantize(to_quantize, **kwarg):
+def quantize(to_quantize, _):
     quantize_model = tfmot.quantization.keras.quantize_model
 
     quntaze_model = quantize_model(to_quantize)

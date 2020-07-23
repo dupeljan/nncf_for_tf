@@ -15,8 +15,9 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import tensorflow as tf
 from typing import List, Optional, Text, Tuple
+
+import tensorflow as tf
 
 from examples.common.datasets import augment
 
@@ -67,7 +68,7 @@ def mean_image_subtraction(
     # expanding dimensions for better performance.
     means = tf.broadcast_to(means, tf.shape(image_bytes))
     if dtype is not None:
-        means = tf.cast(means, dtype=dtype)
+        means = tf.cast(means, dtype)
 
     return image_bytes - means
 
@@ -111,7 +112,7 @@ def standardize_image(
     # expanding dimensions for better performance.
     stddev = tf.broadcast_to(stddev, tf.shape(image_bytes))
     if dtype is not None:
-        stddev = tf.cast(stddev, dtype=dtype)
+        stddev = tf.cast(stddev, dtype)
 
     return image_bytes / stddev
 
