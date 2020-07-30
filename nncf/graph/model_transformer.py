@@ -61,9 +61,8 @@ class ModelTransformer:
             transformed_model = tf.keras.Sequential.from_config(self._model_config, self._custom_objects)
 
         for layer in transformed_model.layers:
-            if isinstance(layer, NNCFWrapper):
-                layer = layer.layer
-            weights = layer_weights_map.get(layer.name)
+            original_layer = layer.layer if isinstance(layer, NNCFWrapper) else layer
+            weights = layer_weights_map.get(original_layer.name)
             if weights:
                 self._set_layer_weights(layer, weights)
 
