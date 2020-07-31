@@ -1,0 +1,28 @@
+{
+    "model": "InceptionV3",
+    "pretrained": true,
+    "input_info": {
+        "sample_size": [1, 299, 299, 3]
+    },
+
+    "batch_size": 256,
+    "epochs": 10,
+    "distributed": true,
+
+    "optimizer": {
+        "type": "adam",
+        "schedule_type": "piecewise_constant_with_warmup",
+        "schedule_params": {
+            "boundaries": [5],
+            "multipliers": [1e-5, 1e-6],
+            "warmup_epochs": 0
+        }
+    },
+
+    "dataset": "imagenet2012",
+    "dataset_type": "tfrecords",
+
+    "compression": {
+        "algorithm": "quantization"
+    }
+}
