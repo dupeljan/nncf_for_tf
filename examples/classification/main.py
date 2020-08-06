@@ -27,7 +27,7 @@ from examples.common.scheduler import build_scheduler
 from examples.common.datasets.builder import DatasetBuilder
 from examples.common.callbacks import get_callbacks
 from nncf.configs.config import Config
-from nncf.algorithm_selector import create_compression_algorithm_builder
+from nncf import create_compressed_model
 
 
 def get_argument_parser():
@@ -120,8 +120,6 @@ def main(argv):
     model, model_params = get_model(config.model,
                                     pretrained=config.get('pretrained', True))
 
-    compression_algo_builder = create_compression_algorithm_builder(config)
-
     builders = get_dataset_builders(config, strategy)
     datasets = [builder.build() for builder in builders]
 
@@ -134,7 +132,7 @@ def main(argv):
 
     with strategy_scope:
         model = model(**model_params)
-        compress_model, compression_callbacks = compression_algo_builder(model)
+        compression_ctrl, compress_model = create_compressed_model(model, config)
 
         scheduler = build_scheduler(
             config=config,
@@ -169,7 +167,7 @@ def main(argv):
         log_steps=100,
         model_dir=config.log_dir)
 
-    callbacks.extend(compression_callbacks)
+    callbacks.extend(compression_ctrl.callbacks)
 
     validation_kwargs = {
         'validation_data': validation_dataset,

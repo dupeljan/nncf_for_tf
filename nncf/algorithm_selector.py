@@ -11,17 +11,23 @@
  limitations under the License.
 """
 
-from functools import partial
-
 from .utils.logger import logger
 from .utils.registry import Registry
+from .api.compression import CompressionAlgorithmBuilder, CompressionAlgorithmController
+from .graph.transformations.layout import TransformationLayout
 
 COMPRESSION_ALGORITHMS = Registry('compression algorithm')
 
 
 @COMPRESSION_ALGORITHMS.register('NoCompressionAlgorithm')
-def no_compression(model):
-    return model, list()
+class NoCompressionAlgorithmBuilder(CompressionAlgorithmBuilder):
+    def _get_transformation_layout(self, _):
+        return TransformationLayout()
+
+
+class NoCompressionAlgorithmController(CompressionAlgorithmController):
+    def export_model(self, save_path, model_name=None):
+        pass
 
 
 def get_compression_algorithm(config):
@@ -34,6 +40,6 @@ def create_compression_algorithm_builder(config):
     compression_config = config.get('compression', {})
 
     if isinstance(compression_config, dict):
-        return partial(get_compression_algorithm(compression_config), config=compression_config)
+        return get_compression_algorithm(compression_config)(compression_config)
 
     return None

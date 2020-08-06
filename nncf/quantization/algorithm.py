@@ -14,12 +14,27 @@
 import tensorflow_model_optimization as tfmot
 
 from ..algorithm_selector import COMPRESSION_ALGORITHMS
+from ..api.compression import CompressionAlgorithmBuilder, CompressionAlgorithmController
+
 
 @COMPRESSION_ALGORITHMS.register('quantization')
-def quantize(to_quantize, _):
-    quantize_model = tfmot.quantization.keras.quantize_model
+class QuantizationBuilder(CompressionAlgorithmBuilder):
+    def apply_to(self, model):
+        quantize_model = tfmot.quantization.keras.quantize_model
+        quntaze_model = quantize_model(model)
+        return quntaze_model
 
-    quntaze_model = quantize_model(to_quantize)
-    callbacks = []
+    def build_controller(self, model):
+        return QuantizationController(model)
 
-    return quntaze_model, callbacks
+    def _get_transformation_layout(self, model):
+        pass
+
+
+class QuantizationController(CompressionAlgorithmController):
+    def __init__(self, target_model):
+        super().__init__(target_model)
+        self.callbacks = []
+
+    def export_model(self, save_path, model_name=None):
+        pass
