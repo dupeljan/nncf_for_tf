@@ -23,6 +23,7 @@ from pathlib import Path
 import tensorflow as tf
 
 from nncf.utils.logger import logger as nncf_logger
+from nncf.utils.save import FROZEN_GRAPH_FORMAT, SAVEDMODEL_FORMAT, KERAS_H5_FORMAT
 from examples.common.logger import logger as default_logger
 
 GENERAL_LOG_FILE_NAME = "output.log"
@@ -106,6 +107,17 @@ def print_args(config, logger=default_logger):
 def serialize_config(config, log_dir):
     with open(osp.join(log_dir, 'config.json'), 'w') as f:
         json.dump(config, f)
+
+
+def get_saving_parameters(config):
+    if config.to_frozen_graph is not None:
+        return config.to_frozen_graph, FROZEN_GRAPH_FORMAT
+    if config.to_saved_model is not None:
+        return config.to_saved_model, SAVEDMODEL_FORMAT
+    if config.to_h5 is not None:
+        return config.to_h5, KERAS_H5_FORMAT
+    save_path = os.path.join(config.log_dir, 'frozen_model.pb')
+    return save_path, FROZEN_GRAPH_FORMAT
 
 
 class BatchTimestamp:
