@@ -13,6 +13,7 @@
 
 from ..graph.model_transformer import ModelTransformer
 from ..configs.config import Config
+from ..utils.save import save_model
 
 
 class CompressionLoss:
@@ -156,19 +157,18 @@ class CompressionAlgorithmController:
         """
         return self._loss.statistics()
 
-    def export_model(self, save_path, model_name=None):
+    def export_model(self, save_path, save_format='frozen_graph'):
         """
-        Used to export the compressed model to the IR format.
-        Makes method-specific preparations of the model,
-        (e.g. removing auxiliary layers that were used for the model compression),
-        then exports the model as IR in specified path.
+        Used to export the compressed model to the Frozen Graph, TensorFlow SavedModel or
+        Keras H5 formats. Makes method-specific preparations of the model, (e.g. removing
+        auxiliary layers that were used for the model compression), then exports the model
+        in specified path.
         Arguments:
            `save_path` - a path to export model.
-           `model_name` - name under which the model will be saved
-        Returns:
-            model_path: dictionary { 'model': 'path to xml', 'weights': 'path to bin' }
+           `save_format` - saving format (`frozen_graph` for Frozen Graph,
+           `tf` for Tensorflow SavedModel, `h5` for Keras H5 format)
         """
-        raise NotImplementedError
+        save_model(self._model, save_path, save_format)
 
 
 class CompressionAlgorithmBuilder:

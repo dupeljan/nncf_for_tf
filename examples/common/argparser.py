@@ -26,10 +26,10 @@ def get_common_argument_parser():
     parser.add_argument(
         "--mode",
         "-m",
+        nargs='+',
         choices=['train', 'test', 'export'],
         default='train',
-        help=("train: performs training and validation; test: tests the model"
-              "found in \"--save_dir\" with name \"--name\" on the validation split of \"--dataset\"; "))
+        help=("train: performs training and validation; test: tests the model; export: exports the model"))
 
     parser.add_argument(
         "--checkpoint-save-dir",
@@ -89,6 +89,16 @@ def get_common_argument_parser():
 
     parser.add_argument('--save-checkpoint-freq', default=5, type=int,
                         help='Checkpoint save frequency (epochs). Default: 5')
+
+    export_format = parser.add_mutually_exclusive_group()
+    export_format.add_argument('--to-frozen-graph', type=str, metavar='PATH', default=None,
+                               help='Export the compressed model to the Frozen Graph by given path')
+
+    export_format.add_argument('--to-saved-model', type=str, metavar='PATH', default=None,
+                               help='Export the compressed model to the TensorFlow SavedModel format by given path')
+
+    export_format.add_argument('--to-h5', type=str, metavar='PATH', default=None,
+                               help='Export the compressed model to the Keras H5 format by given path')
 
     # Display
     parser.add_argument('-p', '--print-freq', default=10, type=int,

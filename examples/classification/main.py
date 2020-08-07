@@ -19,7 +19,7 @@ import tensorflow as tf
 
 from examples.common.logger import logger
 from examples.common.distributed import get_distribution_strategy, get_strategy_scope
-from examples.common.utils import serialize_config, create_code_snapshot, configure_paths
+from examples.common.utils import serialize_config, create_code_snapshot, configure_paths, get_saving_parameters
 from examples.common.argparser import get_common_argument_parser
 from examples.common.model_loader import get_model
 from examples.common.optimizer import build_optimizer
@@ -175,7 +175,7 @@ def main(argv):
         'validation_freq': 1,
     }
 
-    if config.mode == 'train':
+    if 'train' in config.mode:
         compress_model.fit(
             train_dataset,
             epochs=train_epochs,
@@ -189,8 +189,10 @@ def main(argv):
         steps=validation_steps,
         verbose=1)
 
-    if config.mode == 'train':
-        compress_model.save(osp.join(config.log_dir, "compressed_model.h5"))
+    if 'export' in config.mode:
+        save_path, save_format = get_saving_parameters(config)
+        compression_ctrl.export_model(save_path, save_format)
+        logger.info("Saved to {}".format(save_path))
 
 if __name__ == '__main__':
     main(sys.argv[1:])
