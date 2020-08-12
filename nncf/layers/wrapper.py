@@ -78,11 +78,11 @@ class NNCFWrapper(tf.keras.layers.Wrapper):
 
     @property
     def trainable_weights(self):
-        return self.layer.trainable_weights + self._trainable_weights
+        return self._trainable_weights + self.layer.trainable_weights
 
     @property
     def non_trainable_weights(self):
-        return self.layer.non_trainable_weights + self._non_trainable_weights
+        return self._non_trainable_weights + self.layer.non_trainable_weights
 
     @property
     def updates(self):
@@ -92,9 +92,16 @@ class NNCFWrapper(tf.keras.layers.Wrapper):
     def losses(self):
         return self.layer.losses + self._losses
 
+    @property
+    def ops_weights(self):
+        return self._ops_weights
+
+    @property
+    def layer_weights(self):
+        return self._layer_weights
+
     def build(self, input_shape=None):
         super(NNCFWrapper, self).build(input_shape)
-
         for weight_attr, ops in self.weights_attr_ops.items():
             weight = self._get_weight(weight_attr)
             for op_name, op in ops.items():
@@ -106,14 +113,7 @@ class NNCFWrapper(tf.keras.layers.Wrapper):
         if training is None:
             training = tf.keras.backend.learning_phase()
 
-        for weight_attr, ops in self.weights_attr_ops.items():
-            layer_weight = self._layer_weights[weight_attr]
-            for op_name, op in ops.items():
-                layer_weight = op(layer_weight,
-                                  self._ops_weights[op_name],
-                                  training)
-
-            self._set_weight(weight_attr, layer_weight)
+        self._apply_ops(training)
 
         if self._expects_training_arg:
             outputs = self.layer.call(inputs, training=training)
@@ -121,6 +121,17 @@ class NNCFWrapper(tf.keras.layers.Wrapper):
             outputs = self.layer.call(inputs)
 
         return outputs
+
+    def _apply_ops(self, training):
+        for weight_attr, ops in self.weights_attr_ops.items():
+            layer_weight = self._layer_weights[weight_attr]
+            for op_name, op in ops.items():
+                layer_weight = op(layer_weight,
+                                  self._ops_weights[op_name],
+                                  training)
+
+            self.set_weight(weight_attr, layer_weight)
+
 
     def registry_weight_operation(self, weights_attr, op, prefix=None):
         if weights_attr not in self.weights_attr_ops:
@@ -135,7 +146,7 @@ class NNCFWrapper(tf.keras.layers.Wrapper):
     def _get_weight(self, weight_attr):
         return getattr(self.layer, weight_attr, None)
 
-    def _set_weight(self, weight_attr, weights):
+    def set_weight(self, weight_attr, weights):
         return setattr(self.layer, weight_attr, weights)
 
     def _init_layer_call_fn_args(self):

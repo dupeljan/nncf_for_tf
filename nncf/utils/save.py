@@ -41,3 +41,6 @@ def save_model(model, save_path, save_format=FROZEN_GRAPH_FORMAT):
         save_model_as_frozen_graph(model, save_path)
     else:
         model.save(save_path, save_format=save_format)
+        if save_format == SAVEDMODEL_FORMAT:
+            model = tf.saved_model.load(save_path)
+            tf.saved_model.save(model, save_path)

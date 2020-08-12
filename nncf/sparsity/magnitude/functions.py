@@ -11,13 +11,26 @@
  limitations under the License.
 """
 
-from ..algorithm_selector import create_compression_algorithm_builder
+import tensorflow as tf
 
 
-def create_compressed_model(model, config):
-    builder = create_compression_algorithm_builder(config)
-    if builder is None:
-        return None, model
-    compressed_model = builder.apply_to(model)
-    compression_ctrl = builder.build_controller(compressed_model)
-    return compression_ctrl, compressed_model
+def abs_magnitude(weight):
+    return tf.math.abs(weight)
+
+
+def normed_magnitude(weight):
+    return tf.math.abs(tf.math.l2_normalize(weight))
+
+
+WEIGHT_IMPORTANCE_FUNCTIONS = {
+    'abs': abs_magnitude,
+    'normed_abs': normed_magnitude
+}
+
+
+def calc_magnitude_binary_mask(weight, weight_importance, threshold):
+    return tf.cast(weight_importance(weight) > threshold, tf.float32)
+
+
+def apply_mask(weights, mask):
+    return weights * mask

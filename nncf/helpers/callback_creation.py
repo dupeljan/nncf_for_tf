@@ -11,13 +11,14 @@
  limitations under the License.
 """
 
-from ..algorithm_selector import create_compression_algorithm_builder
+from nncf.sparsity.callbacks import UpdateMask, SparsityStatistics
+from nncf.sparsity.magnitude.algorithm import MagnitudeSparsityController
 
 
-def create_compressed_model(model, config):
-    builder = create_compression_algorithm_builder(config)
-    if builder is None:
-        return None, model
-    compressed_model = builder.apply_to(model)
-    compression_ctrl = builder.build_controller(compressed_model)
-    return compression_ctrl, compressed_model
+def create_compression_callbacks(compression_ctrl, log_dir):
+    if isinstance(compression_ctrl, MagnitudeSparsityController):
+        return [
+            UpdateMask(compression_ctrl.scheduler),
+            SparsityStatistics(compression_ctrl.statistics, log_dir, profile_batch=0)
+        ]
+    return []

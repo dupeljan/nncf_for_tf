@@ -71,18 +71,29 @@ class CompressionScheduler:
     over several epochs.
     """
 
-    def call(self, step):
-        """
-        Implements the logic of compression method control during the training process.
-        Arguments:
-             step: training step
-        """
+    def __init__(self):
+        self.last_epoch = 0
+        self.last_step = 0
 
-    def __call__(self, *args, **kwargs):
+    def step(self, last=None):
         """
-        Invokes the `CompressionScheduler` instance.
+        Should be called after each optimizer step during training.
+        Arguments:
+            `last` - specifies the initial "previous" step
         """
-        return self.call(*args, **kwargs)
+        if last is None:
+            last = self.last_step + 1
+        self.last_step = last
+
+    def epoch_step(self, last=None):
+        """
+        Should be called after each training epoch.
+        Arguments:
+            `last` - specifies the initial "previous" epoch
+        """
+        if last is None:
+            last = self.last_epoch + 1
+        self.last_epoch = last
 
     def get_config(self):
         """
@@ -168,7 +179,11 @@ class CompressionAlgorithmController:
            `save_format` - saving format (`frozen_graph` for Frozen Graph,
            `tf` for Tensorflow SavedModel, `h5` for Keras H5 format)
         """
-        save_model(self._model, save_path, save_format)
+        stripped_model = self.strip_model()
+        save_model(stripped_model, save_path, save_format)
+
+    def strip_model(self):
+        return self._model
 
 
 class CompressionAlgorithmBuilder:
