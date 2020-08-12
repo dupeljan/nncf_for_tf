@@ -13,6 +13,8 @@
 
 import tensorflow as tf
 
+from nncf.layers.wrapper import NNCFWrapper
+
 
 def is_sequential_or_functional_model(model):
     return is_sequential_model(model) or is_functional_model(model)
@@ -34,3 +36,13 @@ def get_custom_objects(_):
 
 def get_weight_name(name):
     return name.split('/')[-1]
+
+
+def collect_wrapped_layers(model):
+    wrapped_layers = []
+    for layer in model.layers:
+        if isinstance(layer, tf.keras.Model):
+            wrapped_layers += collect_wrapped_layers(layer)
+        if isinstance(layer, NNCFWrapper):
+            wrapped_layers.append(layer)
+    return wrapped_layers

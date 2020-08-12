@@ -11,10 +11,10 @@
 
     "optimizer": {
         "type": "adam",
-        "schedule_type": "piecewise_constant_with_warmup",
+        "schedule_type": "piecewise_constant",
         "schedule_params": {
             "boundaries": [5],
-            "multipliers": [1e-5, 1e-6],
+            "values": [1e-5, 1e-6],
             "warmup_epochs": 0
         }
     },

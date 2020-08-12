@@ -14,10 +14,10 @@
         "momentum": 0.9,
         "decay": 0.9,
         "epsilon": 0.001,
-        "schedule_type": "piecewise_constant_with_warmup",
+        "schedule_type": "piecewise_constant",
         "schedule_params": {
             "boundaries": [30, 60, 80],
-            "multipliers": [1.0, 0.1, 0.01, 0.001],
+            "values": [1.0, 0.1, 0.01, 0.001],
             "warmup_epochs": 5
         }
     },

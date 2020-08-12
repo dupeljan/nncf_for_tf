@@ -26,8 +26,9 @@ from examples.common.optimizer import build_optimizer
 from examples.common.scheduler import build_scheduler
 from examples.common.datasets.builder import DatasetBuilder
 from examples.common.callbacks import get_callbacks
-from nncf.configs.config import Config
 from nncf import create_compressed_model
+from nncf.configs.config import Config
+from nncf import create_compression_callbacks
 
 
 def get_argument_parser():
@@ -88,32 +89,35 @@ def get_metrics(one_hot=True):
     ]
 
 
-def resume_from_checkpoint(model, model_dir, train_steps):
+def load_checkpoint(model, ckpt_path):
     logger.info('Load from checkpoint is enabled.')
-    latest_checkpoint = tf.train.latest_checkpoint(model_dir)
-    logger.info('latest_checkpoint: {}'.format(latest_checkpoint))
-    if not latest_checkpoint:
+    if tf.io.gfile.isdir(ckpt_path):
+        checkpoint = tf.train.latest_checkpoint(ckpt_path)
+        logger.info('Latest checkpoint: {}'.format(checkpoint))
+    else:
+        checkpoint = ckpt_path if tf.io.gfile.exists(ckpt_path + '.index') else None
+        logger.info('Provided checkpoint: {}'.format(checkpoint))
+
+    if not checkpoint:
         logger.info('No checkpoint detected.')
         return 0
 
     logger.info('Checkpoint file {} found and restoring from checkpoint'
-                .format(latest_checkpoint))
-    model.load_weights(latest_checkpoint)
-    initial_epoch = model.optimizer.iterations // train_steps
+                .format(checkpoint))
+    model.load_weights(checkpoint).expect_partial()
     logger.info('Completed loading from checkpoint.')
+    return None
+
+
+def resume_from_checkpoint(model, ckpt_path, train_steps):
+    if load_checkpoint(model, ckpt_path) == 0:
+        return 0
+    initial_epoch = model.optimizer.iterations // train_steps
     logger.info('Resuming from epoch %d', initial_epoch)
     return int(initial_epoch)
 
 
-def main(argv):
-    parser = get_argument_parser()
-    config = get_config_from_argv(argv, parser)
-
-    serialize_config(config, config.log_dir)
-
-    nncf_root = Path(__file__).absolute().parents[2]
-    create_code_snapshot(nncf_root, osp.join(config.log_dir, "snapshot.tar.gz"))
-
+def train_test_export(config):
     strategy = get_distribution_strategy(config)
     strategy_scope = get_strategy_scope(strategy)
 
@@ -132,7 +136,9 @@ def main(argv):
 
     with strategy_scope:
         model = model(**model_params)
+
         compression_ctrl, compress_model = create_compressed_model(model, config)
+        compression_callbacks = create_compression_callbacks(compression_ctrl, config.log_dir)
 
         scheduler = build_scheduler(
             config=config,
@@ -148,12 +154,15 @@ def main(argv):
 
         compress_model.compile(optimizer=optimizer,
                                loss=loss_obj,
-                               metrics=metrics)
+                               metrics=metrics,
+                               run_eagerly=config.get('eager_mode', False))
+
+        compress_model.summary()
 
         initial_epoch = 0
         if config.get('resume_checkpoint', False):
             initial_epoch = resume_from_checkpoint(model=compress_model,
-                                                   model_dir=config.model_dir,
+                                                   ckpt_path=config.model_dir,
                                                    train_steps=train_steps)
 
     callbacks = get_callbacks(
@@ -167,7 +176,7 @@ def main(argv):
         log_steps=100,
         model_dir=config.log_dir)
 
-    callbacks.extend(compression_ctrl.callbacks)
+    callbacks.extend(compression_callbacks)
 
     validation_kwargs = {
         'validation_data': validation_dataset,
@@ -193,6 +202,44 @@ def main(argv):
         save_path, save_format = get_saving_parameters(config)
         compression_ctrl.export_model(save_path, save_format)
         logger.info("Saved to {}".format(save_path))
+
+
+def export(config):
+    model, model_params = get_model(config.model,
+                                    pretrained=config.get('pretrained', True))
+    model = model(**model_params)
+
+    compression_ctrl, compress_model = create_compressed_model(model, config)
+
+    metrics = get_metrics()
+    loss_obj = tf.keras.losses.CategoricalCrossentropy(label_smoothing=0.1)
+
+    compress_model.compile(loss=loss_obj,
+                           metrics=metrics)
+
+    compress_model.summary()
+
+    load_checkpoint(model=compress_model,
+                    ckpt_path=config.model_dir)
+
+    save_path, save_format = get_saving_parameters(config)
+    compression_ctrl.export_model(save_path, save_format)
+    logger.info("Saved to {}".format(save_path))
+
+
+def main(argv):
+    parser = get_argument_parser()
+    config = get_config_from_argv(argv, parser)
+
+    serialize_config(config, config.log_dir)
+
+    nncf_root = Path(__file__).absolute().parents[2]
+    create_code_snapshot(nncf_root, osp.join(config.log_dir, "snapshot.tar.gz"))
+    if 'train' in config.mode or 'test' in config.mode:
+        train_test_export(config)
+    elif 'export' in config.mode:
+        export(config)
+
 
 if __name__ == '__main__':
     main(sys.argv[1:])

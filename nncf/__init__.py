@@ -16,4 +16,6 @@ from .version import __version__
 # Required for correct COMPRESSION_ALGORITHMS registry functioning
 from .quantization import algorithm as quantization_algorithm
 from .sparsity.magnitude import algorithm as magnitude_sparsity_algorithm
+
 from .helpers.model_creation import create_compressed_model
+from .helpers.callback_creation import create_compression_callbacks
