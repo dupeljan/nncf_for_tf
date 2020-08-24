@@ -36,7 +36,8 @@ def convert_keras_model_to_nxmodel(model):
     for layer in model_config['layers']:
         layer_name = layer['name']
         layer_type = layer['class_name']
-        nxmodel.add_node(layer_name, type=layer_type)
+        data_format = layer['config'].get('data_format')
+        nxmodel.add_node(layer_name, type=layer_type, data_format=data_format)
 
         if func_model:
             for inbound_nodes in layer['inbound_nodes']:
