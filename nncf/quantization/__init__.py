@@ -10,3 +10,6 @@
  See the License for the specific language governing permissions and
  limitations under the License.
 """
+# Required for correct registry functioning
+from .layers import FakeQuantize
+from .quantizers import SymmetricQuantizer, AsymmetricQuantizer

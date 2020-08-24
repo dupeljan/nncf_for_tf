@@ -14,8 +14,7 @@
         "schedule_type": "piecewise_constant",
         "schedule_params": {
             "boundaries": [5],
-            "values": [1e-5, 1e-6],
-            "warmup_epochs": 0
+            "values": [1e-5, 1e-6]
         }
     },
 

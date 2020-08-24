@@ -11,20 +11,35 @@
  limitations under the License.
 """
 
+from collections import OrderedDict
+from ..utils.hook_handle import HookHandle
+
+
+class InputType:
+    INPUTS = "inputs"
+    WEIGHTS = "weights"
+
 
 class NNCFOperation:
     """
     The abstract class represents main building block for adding compression
     extensions to a model.
     """
+    def __init__(self):
+        """
+        Initializes internal NNCF operation state
+        """
+        self._call_pre_hooks = OrderedDict()
 
-    def build(self, input_shape, name, layer):
+    def build(self, input_shape, input_type, name, layer):
         """
         This method can be used to create weights that depend on the shape(s)
         of the input(s) and register them in the NNCF Wrapper `layer`. The method
         will be automatically called when NNCF Wrapper `layer` is built.
 
         :param input_shape: shape of the input
+        :param input_type: type of the input identifies that inputs are layer weights
+                           or inputs of the layer
         :param name: operation name
         :param layer: NNCF Wrapper layer, where the operation is registered
         :return: weights dictionary {weight name: weight value}
@@ -42,8 +57,27 @@ class NNCFOperation:
         """
         raise NotImplementedError
 
+    def register_hook_pre_call(self, hook):
+        """
+        Registers a hook which will be called before `call` function.
+        The NNCF operation does not support serialization of the registered hooks.
+
+        :param hook: callable object with following signatures:
+                     hook(inputs) -> None or modified input
+        :return: a handle that can be used to remove the hook form
+                 the NNCF operation by calling handle.remove()
+        """
+        handle = HookHandle(self._call_pre_hooks)
+        self._call_pre_hooks[handle.hook_id] = hook
+        return handle
+
     def __call__(self, *args, **kwargs):
-        return self.call(*args, **kwargs)
+        inputs = args[0]
+        for hook in self._call_pre_hooks.values():
+            result = hook(inputs)
+            if result is not None:
+                inputs = result
+        return self.call(inputs, *args[1:], **kwargs)
 
     def __eq__(self, other):
         return self.__class__ is other.__class__

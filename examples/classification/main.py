@@ -159,6 +159,9 @@ def train_test_export(config):
 
         compress_model.summary()
 
+        logger.info('initialization...')
+        compression_ctrl.initialize(dataset=train_dataset)
+
         initial_epoch = 0
         if config.get('resume_checkpoint', False):
             initial_epoch = resume_from_checkpoint(model=compress_model,
@@ -185,6 +188,7 @@ def train_test_export(config):
     }
 
     if 'train' in config.mode:
+        logger.info('training...')
         compress_model.fit(
             train_dataset,
             epochs=train_epochs,
@@ -193,6 +197,7 @@ def train_test_export(config):
             callbacks=callbacks,
             **validation_kwargs)
 
+    logger.info('evaluation...')
     compress_model.evaluate(
         validation_dataset,
         steps=validation_steps,

@@ -26,8 +26,7 @@ class NoCompressionAlgorithmBuilder(CompressionAlgorithmBuilder):
 
 
 class NoCompressionAlgorithmController(CompressionAlgorithmController):
-    def export_model(self, save_path, model_name=None):
-        pass
+    pass
 
 
 def get_compression_algorithm(config):

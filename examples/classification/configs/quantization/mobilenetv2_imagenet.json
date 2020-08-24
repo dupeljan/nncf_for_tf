@@ -1,0 +1,37 @@
+{
+    "model": "MobileNetV2",
+    "pretrained": true,
+    "input_info": {
+        "sample_size": [1, 224, 224, 3]
+    },
+
+    "batch_size": 256,
+    "epochs": 1,
+    "distributed": true,
+
+    "optimizer": {
+        "type": "adam",
+        "schedule_type": "piecewise_constant",
+        "schedule_params": {
+            "boundaries": [5, 10],
+            "values": [1e-4, 1e-5, 1e-6]
+        }
+    },
+
+    "dataset": "imagenet2012",
+    "dataset_type": "tfrecords",
+
+    "compression": {
+        "algorithm": "quantization",
+        "weights": {
+            "mode": "symmetric",
+            "bits": 8,
+            "per_channel": true
+        },
+        "activations": {
+            "mode": "asymmetric",
+            "bits": 8,
+            "per_channel": false
+        }
+    }
+}

@@ -17,6 +17,7 @@ from inspect import getfullargspec
 import tensorflow as tf
 
 from .custom_objects import NNCF_CUSTOM_OBJECTS, get_nncf_custom_objects
+from .operation import InputType
 
 
 @NNCF_CUSTOM_OBJECTS.register()
@@ -93,6 +94,10 @@ class NNCFWrapper(tf.keras.layers.Wrapper):
         return self.layer.losses + self._losses
 
     @property
+    def data_format(self):
+        return getattr(self.layer, 'data_format', 'channels_last')
+
+    @property
     def ops_weights(self):
         return self._ops_weights
 
@@ -103,9 +108,10 @@ class NNCFWrapper(tf.keras.layers.Wrapper):
     def build(self, input_shape=None):
         super(NNCFWrapper, self).build(input_shape)
         for weight_attr, ops in self.weights_attr_ops.items():
-            weight = self._get_weight(weight_attr)
+            weight = self._get_layer_weight(weight_attr)
             for op_name, op in ops.items():
-                self._ops_weights[op_name] = op.build(weight.shape, weight_attr, self)
+                self._ops_weights[op_name] = op.build(
+                    weight.shape, InputType.WEIGHTS, weight_attr, self)
             self._layer_weights[weight_attr] = weight
             self._trainable_weights.append(weight)
 
@@ -129,23 +135,23 @@ class NNCFWrapper(tf.keras.layers.Wrapper):
                 layer_weight = op(layer_weight,
                                   self._ops_weights[op_name],
                                   training)
-
             self.set_weight(weight_attr, layer_weight)
 
-
-    def registry_weight_operation(self, weights_attr, op, prefix=None):
+    def registry_weight_operation(self, weights_attr, op):
         if weights_attr not in self.weights_attr_ops:
             self.weights_attr_ops[weights_attr] = OrderedDict()
 
         op_name = 'nncf_op_{}:{}'.format(weights_attr, len(self.weights_attr_ops[weights_attr]))
-        if prefix is not None:
-            op_name = prefix + op_name
         self.weights_attr_ops[weights_attr][op_name] = op
         return op_name
 
-    def _get_weight(self, weight_attr):
+    def get_operation_weights(self, operation_name):
+        return self._ops_weights[operation_name]
+
+    def _get_layer_weight(self, weight_attr):
         return getattr(self.layer, weight_attr, None)
 
+    #TODO _set_layer_weight is more pretty name
     def set_weight(self, weight_attr, weights):
         return setattr(self.layer, weight_attr, weights)
 

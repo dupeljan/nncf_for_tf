@@ -43,3 +43,7 @@ class Registry:
     @property
     def registry_dict(self):
         return self._registry_dict
+
+    #TODO
+    def __contains__(self, key):
+        return key in self._registry_dict.values()
