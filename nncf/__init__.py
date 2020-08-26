@@ -19,3 +19,4 @@ from .sparsity.magnitude import algorithm as magnitude_sparsity_algorithm
 
 from .helpers.model_creation import create_compressed_model
 from .helpers.callback_creation import create_compression_callbacks
+from .configs.config import Config

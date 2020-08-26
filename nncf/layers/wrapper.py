@@ -46,7 +46,7 @@ class NNCFWrapper(tf.keras.layers.Wrapper):
         if 'name' not in kwargs:
             kwargs['name'] = '{}_{}'.format('nncf_wrapper', layer.name)
 
-        super(NNCFWrapper, self).__init__(layer, **kwargs)
+        super().__init__(layer, **kwargs)
         self._track_trackable(layer, name='layer')
 
         self.weights_attr_ops = {}
@@ -106,7 +106,7 @@ class NNCFWrapper(tf.keras.layers.Wrapper):
         return self._layer_weights
 
     def build(self, input_shape=None):
-        super(NNCFWrapper, self).build(input_shape)
+        super().build(input_shape)
         for weight_attr, ops in self.weights_attr_ops.items():
             weight = self._get_layer_weight(weight_attr)
             for op_name, op in ops.items():
@@ -168,7 +168,7 @@ class NNCFWrapper(tf.keras.layers.Wrapper):
         return all_args
 
     def get_config(self):
-        config = super(NNCFWrapper, self).get_config()
+        config = super().get_config()
 
         weights_attr_ops = {}
         for weights_attr, ops in self.weights_attr_ops.items():

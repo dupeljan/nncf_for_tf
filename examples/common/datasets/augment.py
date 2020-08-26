@@ -754,7 +754,7 @@ class AutoAugment(ImageAugment):
           cutout_const: multiplier for applying cutout.
           translate_const: multiplier for applying translation.
         """
-        super(AutoAugment, self).__init__()
+        super().__init__()
 
         if policies is None:
             self.available_policies = {

@@ -14,7 +14,7 @@
 import tensorflow as tf
 
 from .functions import WEIGHT_IMPORTANCE_FUNCTIONS, calc_magnitude_binary_mask
-from .masking import Masking
+from .operation import BinaryMask
 from ..schedulers import SPARSITY_SCHEDULERS
 from ...algorithm_selector import COMPRESSION_ALGORITHMS
 from ...api.compression import CompressionAlgorithmController, CompressionAlgorithmBuilder
@@ -53,7 +53,7 @@ class MagnitudeSparsityBuilder(CompressionAlgorithmBuilder):
                 continue
 
             weight_attr_name = PRUNING_LAYERS[node['type']]['weight_attr_name']
-            operation = Masking()
+            operation = BinaryMask()
             transformations.register(
                 InsertionCommand(
                     InsertionWeightsPoint(node_name, weight_attr_name),
@@ -118,9 +118,9 @@ class MagnitudeSparsityController(CompressionAlgorithmController):
         """checks whether operation is applicable and applies it if possible"""
 
         # check whether operation is applicable:
-        # Masking must be the first operation and currently the only one
+        # BinaryMask operation must be the first operation and currently the only one
         for ops in wrapped_layer.weights_attr_ops.values():
-            if ops and not isinstance(next(iter(ops.values())), Masking) or len(ops) != 1:
+            if ops and not isinstance(next(iter(ops.values())), BinaryMask) or len(ops) != 1:
                 return False
 
         # Mask application
@@ -160,7 +160,7 @@ class MagnitudeSparsityController(CompressionAlgorithmController):
                 weight = wrapped_layer.layer_weights[weight_attr]
 
                 for op_name, op in ops.items():
-                    if isinstance(op, Masking):
+                    if isinstance(op, BinaryMask):
                         wrapped_layer.ops_weights[op_name].assign(
                             calc_magnitude_binary_mask(weight,
                                                        self.weight_importance,
@@ -172,7 +172,7 @@ class MagnitudeSparsityController(CompressionAlgorithmController):
         for wrapped_layer in collect_wrapped_layers(self._model):
             for weight_attr, ops in wrapped_layer.weights_attr_ops.items():
                 for op in ops.values():
-                    if isinstance(op, Masking):
+                    if isinstance(op, BinaryMask):
                         all_weights.append(tf.reshape(
                             self.weight_importance(wrapped_layer.layer_weights[weight_attr]),
                             [-1]))
@@ -188,7 +188,7 @@ class MagnitudeSparsityController(CompressionAlgorithmController):
         for wrapped_layer in wrapped_layers:
             for ops in wrapped_layer.weights_attr_ops.values():
                 for op_name, op in ops.items():
-                    if isinstance(op, Masking):
+                    if isinstance(op, BinaryMask):
                         mask = wrapped_layer.ops_weights[op_name]
                         mask_names.append(mask.name)
                         weights_number = tf.size(mask)

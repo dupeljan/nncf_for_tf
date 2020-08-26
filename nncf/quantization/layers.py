@@ -24,7 +24,7 @@ class FakeQuantize(tf.keras.layers.Layer):
         """
         Create a FakeQuantize layer.
         """
-        super(FakeQuantize, self).__init__(**kwargs)
+        super().__init__(**kwargs)
         self.mode = config.mode
         self.num_bits = config.num_bits
         self.per_channel = config.per_channel

@@ -97,7 +97,7 @@ class TransformationCommand:
 
 class InsertionPoint(TargetPoint):
     def __init__(self, target_type, layer_name):
-        super(InsertionPoint, self).__init__(target_type)
+        super().__init__(target_type)
         self._layer_name = layer_name
 
     @property
@@ -115,7 +115,7 @@ class InsertionPoint(TargetPoint):
 
 class InsertionWeightsPoint(TargetPoint):
     def __init__(self, layer_name, weights_attr_name):
-        super(InsertionWeightsPoint, self).__init__(TargetType.WEIGHT_OPERATION)
+        super().__init__(TargetType.WEIGHT_OPERATION)
         self._layer_name = layer_name
         self._weights_attr_name = weights_attr_name
 
@@ -140,7 +140,7 @@ class InsertionWeightsPoint(TargetPoint):
 
 class InsertionCommand(TransformationCommand):
     def __init__(self, target_point, callable_object=None, priority=None):
-        super(InsertionCommand, self).__init__(TransformationType.INSERT,
+        super().__init__(TransformationType.INSERT,
                                                target_point)
         self.callable_objects = []
 
