@@ -68,7 +68,7 @@ def parse_record(record: tf.Tensor):
 
 class ImageNet2012(TFRecordDataset):
     def __init__(self, config, is_train):
-        super(ImageNet2012, self).__init__(config, is_train)
+        super().__init__(config, is_train)
 
         self._file_pattern = os.path.join(
             self.dataset_dir,

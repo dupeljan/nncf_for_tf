@@ -20,6 +20,7 @@ import examples.common.datasets.tfrecords as records_dataset
 from examples.common.logger import logger
 from examples.common.datasets.augment import create_augmenter
 from examples.common.datasets.preprocessing import preprocess_for_train, preprocess_for_eval, get_preprocess_fn
+from examples.common.utils import set_hard_limit_num_open_files
 
 
 class DatasetBuilder:
@@ -84,9 +85,9 @@ class DatasetBuilder:
         }
         try:
             return dtype_map[self._dtype]
-        except:
+        except Exception as exc:
             raise ValueError('Invalid DType provided. Supported types: {}'.format(
-                dtype_map.keys()))
+                dtype_map.keys())) from exc
 
     @property
     def num_examples(self):
@@ -122,6 +123,8 @@ class DatasetBuilder:
 
     def load_tfds(self):
         logger.info('Using TFDS to load data.')
+
+        set_hard_limit_num_open_files()
 
         self._builder = tfds.builder(self._dataset_name,
                                      data_dir=self._dataset_dir)

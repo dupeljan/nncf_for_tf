@@ -6,7 +6,7 @@
     },
 
     "batch_size": 256,
-    "epochs": 1,
+    "epochs": 15,
     "distributed": true,
 
     "optimizer": {
@@ -19,19 +19,9 @@
     },
 
     "dataset": "imagenet2012",
-    "dataset_type": "tfrecords",
+    "dataset_type": "tfds",
 
     "compression": {
-        "algorithm": "quantization",
-        "weights": {
-            "mode": "symmetric",
-            "bits": 8,
-            "per_channel": true
-        },
-        "activations": {
-            "mode": "asymmetric",
-            "bits": 8,
-            "per_channel": false
-        }
+        "algorithm": "quantization"
     }
 }

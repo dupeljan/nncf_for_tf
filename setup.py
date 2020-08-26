@@ -37,6 +37,7 @@ def find_version(*file_paths):
 
 
 INSTALL_REQUIRES = [
+    "absl-py==0.8.1",
     "addict",
     "networkx",
     "tensorflow==2.2.0",

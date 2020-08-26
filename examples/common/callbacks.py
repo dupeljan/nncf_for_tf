@@ -87,7 +87,7 @@ class CustomTensorBoard(tf.keras.callbacks.TensorBoard):
                  track_lr: bool = False,
                  initial_step: int = 0,
                  **kwargs):
-        super(CustomTensorBoard, self).__init__(log_dir=log_dir, **kwargs)
+        super().__init__(log_dir=log_dir, **kwargs)
         self.step = initial_step
         self._track_lr = track_lr
 
@@ -98,7 +98,7 @@ class CustomTensorBoard(tf.keras.callbacks.TensorBoard):
         if logs is None:
             logs = {}
         logs.update(self._calculate_metrics())
-        super(CustomTensorBoard, self).on_batch_begin(self.step, logs)
+        super().on_batch_begin(self.step, logs)
 
     def on_epoch_begin(self,
                        epoch: int,
@@ -109,7 +109,7 @@ class CustomTensorBoard(tf.keras.callbacks.TensorBoard):
         logs.update(metrics)
         for k, v in metrics.items():
             logging.info('Current %s: %f', k, v)
-        super(CustomTensorBoard, self).on_epoch_begin(epoch, logs)
+        super().on_epoch_begin(epoch, logs)
 
     def on_epoch_end(self,
                      epoch: int,
@@ -118,7 +118,7 @@ class CustomTensorBoard(tf.keras.callbacks.TensorBoard):
             logs = {}
         metrics = self._calculate_metrics()
         logs.update(metrics)
-        super(CustomTensorBoard, self).on_epoch_end(epoch, logs)
+        super().on_epoch_end(epoch, logs)
 
     def _calculate_metrics(self) -> MutableMapping[str, Any]:
         logs = {}

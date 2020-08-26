@@ -17,6 +17,7 @@ import json
 import logging
 import os
 import tarfile
+import resource
 from os import path as osp
 from pathlib import Path
 
@@ -146,7 +147,7 @@ class TimeHistory(tf.keras.callbacks.Callback):
         # TODO(wcromar): remove this parameter and rely on `logs` parameter of
         # on_train_batch_end()
         self.batch_size = batch_size
-        super(TimeHistory, self).__init__()
+        super().__init__()
         self.log_steps = log_steps
         self.last_log_step = 0
         self.steps_before_epoch = 0
@@ -231,3 +232,8 @@ class TimeHistory(tf.keras.callbacks.Callback):
 
         self.steps_before_epoch += self.steps_in_epoch
         self.steps_in_epoch = 0
+
+
+def set_hard_limit_num_open_files():
+    _, high = resource.getrlimit(resource.RLIMIT_NOFILE)
+    resource.setrlimit(resource.RLIMIT_NOFILE, (high, high))

@@ -21,16 +21,16 @@ class UpdateMask(tf.keras.callbacks.Callback):
 
     def on_train_batch_begin(self, batch, logs=None):
         self._scheduler.step()
-        super(UpdateMask, self).on_train_batch_begin(batch, logs)
+        super().on_train_batch_begin(batch, logs)
 
     def on_epoch_end(self, epoch, logs=None):
         self._scheduler.epoch_step()
-        super(UpdateMask, self).on_epoch_end(epoch, logs)
+        super().on_epoch_end(epoch, logs)
 
 
 class SparsityStatistics(tf.keras.callbacks.TensorBoard):
     def __init__(self, statistics_fn, log_dir, update_freq='epoch', **kwargs):
-        super(SparsityStatistics, self).__init__(
+        super().__init__(
             log_dir=log_dir, update_freq=update_freq, **kwargs)
         self._statistics_fn = statistics_fn
 
@@ -48,7 +48,7 @@ class SparsityStatistics(tf.keras.callbacks.TensorBoard):
 
     def on_epoch_begin(self, epoch, logs=None):
         if logs is not None:
-            super(SparsityStatistics, self).on_epoch_begin(epoch, logs)
+            super().on_epoch_begin(epoch, logs)
 
         sparsity_statistics = self._statistics_fn()
 

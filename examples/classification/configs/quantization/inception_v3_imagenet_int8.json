@@ -19,7 +19,7 @@
     },
 
     "dataset": "imagenet2012",
-    "dataset_type": "tfrecords",
+    "dataset_type": "tfds",
 
     "compression": {
         "algorithm": "quantization"
