@@ -1,10 +1,10 @@
 # Neural Network Compression Framework for TensorFlow (NNCF TF)
 
-This repository contains a TensorFlow*-based framework and samples for neural networks compression. 
+This repository contains a TensorFlow*-based framework and samples for neural networks compression.
 
-The framework is the implementaiton of the [Neural Network Compression Framework (NNCF)](https://github.com/openvinotoolkit/nncf_pytorch) for TensorFlow\*
+The framework is the implementaiton of the [Neural Network Compression Framework (NNCF)](https://github.com/openvinotoolkit/nncf_pytorch) for TensorFlow\*.
 
-The framework is organized as a Python\* package that can be built and used in a standalone mode. 
+The framework is organized as a Python\* package that can be built and used in a standalone mode.
 The framework architecture is unified to make it easy to add different compression methods.
  
 The samples demonstrate the usage of compression algorithms for two different use cases on public models and datasets: Image Classification, Object Detection.
@@ -17,8 +17,8 @@ The samples demonstrate the usage of compression algorithms for two different us
     - Sparsity
 - Automatic, configurable model graph transformation to obtain the compressed model. The model is wrapped by the custom class and additional compression-specific layers are inserted in the graph.
   > **NOTE**: Only Keras models created using Sequential or Keras Functional API are supported.
-- Common interface for compression methods
-- Distributed training support
+- Common interface for compression methods.
+- Distributed training support.
 - Configuration file examples for each supported compression algorithm.
 - Exporting compressed models to Frozen Graph or TensorFlow\* SavedModel ready for usage with [OpenVINO&trade; toolkit](https://github.com/openvinotoolkit/).
 
@@ -60,7 +60,7 @@ To run the samples please refer to the corresponding tutorials:
 - Ubuntu\* 16.04 or later (64-bit)
 - Python\* 3.6 or later
 - NVidia CUDA\* Toolkit 10.1 or later
-- TensorFlow\* 2.2.0 or later.
+- TensorFlow\* 2.2.0 or later
 
 ## Installation
 We suggest to install or use the package in the [Python virtual environment](https://docs.python.org/3/tutorial/venv.html).
@@ -68,12 +68,14 @@ We suggest to install or use the package in the [Python virtual environment](htt
 
 #### As a package built from a checked-out repository:
 1) Install the following system dependencies:
-
-`sudo apt-get install python3-dev`
+    ```
+    sudo apt-get install python3-dev
+    ```
 
 2) Install the package and its dependencies by running the following in the repository root directory:
-
-`python setup.py install`
+    ```
+    python setup.py install
+    ```
 
 _NB_: For launching example scripts in this repository, we recommend replacing the `install` option above with `develop` and setting the `PYTHONPATH` variable to the root of the checked-out repository.
 
@@ -86,11 +88,11 @@ Achieved using sample scripts and NNCF TF configuration files provided with this
 
 Quick jump to the samples:
 - [Classification](#classification)
-- [Object detection](#object-detection)
+- [Object Detection](#object-detection)
 
 #### Classification
 
-|Model|Compression algorithm|Dataset|TensorFlow FP32 baseline|TensorFlow compressed accuracy|
+|**Model**|**Compression algorithm**|**Dataset**|**TensorFlow FP32 baseline**|**TensorFlow compressed accuracy**|
 | :---: | :---: | :---: | :---: | :---: |
 |Inception V3|INT8 w:sym,per-tensor a:sym,per-tensor |ImageNet|77.9|78.27|
 |Inception V3|Sparsity 54% (Magnitude)|ImageNet|77.9|77.87|
@@ -99,7 +101,7 @@ Quick jump to the samples:
 
 #### Object detection
 
-|Model|Compression algorithm|Dataset|TensorFlow FP32 baseline|TensorFlow compressed accuracy|
+|**Model**|**Compression algorithm**|**Dataset**|**TensorFlow FP32 baseline**|**TensorFlow compressed accuracy**|
 | :---: | :---: | :---: | :---: | :---: |
 |RetinaNet|INT8 w:sym,per-tensor a:sym,per-tensor |COCO2017|-|-|
 |RetinaNet|Sparsity 50% (Magnitude)|COCO2017|-|-|
