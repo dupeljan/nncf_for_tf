@@ -99,9 +99,11 @@ To export a model to the OpenVINO IR and run it using the Intel® Deep Learning 
 
 ### Results for quantization
 
+> **NOTE**: If the link to a TensorFlow checkpoint doesn't open, copy the link and place it directly into your browser. Since Tensorflow checkpoints are stored in a shared folder, browsers such as Firefox and Chrome can not open these links by default ([see more information](https://support.google.com/gsa/answer/2664790?hl=en)). 
+
 |**Model**|**Compression algorithm**|**Dataset**|**TensorFlow compressed accuracy**|**Config path**|**TensorFlow checkpoint**|
 | :---: | :---: | :---: | :---: | :---: | :---: |
-|Inception V3|INT8 w:sym,per-tensor a:sym,per-tensor |ImageNet|78.27|examples/classification/configs/quantization/inception_v3_imagenet_int8.json|[Link](\\icv-cifs.inn.intel.com\icv_projects\NNCF\compressed_models\NNCF_TF\inception_v3_int8_w_sym_t_a_sym_t.tar.gz)|
-|Inception V3|Sparsity 54% (Magnitude)|ImageNet|77.87|examples/classification/configs/sparsity/inception_v3_imagenet_magnitude_sparsity.json|[Link](\\icv-cifs.inn.intel.com\icv_projects\NNCF\compressed_models\NNCF_TF\inception_v3_sparsity_54.tar.gz)|
-|MobileNet V2|INT8 w:sym,per-tensor a:sym,per-tensor |ImageNet|71.81|examples/classification/configs/quantization/mobilenet_v2_imagenet_int8.json|[Link](\\icv-cifs.inn.intel.com\icv_projects\NNCF\compressed_models\NNCF_TF\mobilenet_v2_int8_w_sym_t_a_sym_t.tar.gz)|
-|MobileNet V2|Sparsity 35% (Magnitude)|ImageNet|72.36|examples/classification/configs/sparsity/mobilenet_v2_imagenet_magnitude_sparsity.json|[Link](\\icv-cifs.inn.intel.com\icv_projects\NNCF\compressed_models\NNCF_TF\mobilenet_v2_sparsity_35.tar.gz)|
+|Inception V3|INT8 w:sym,per-tensor a:sym,per-tensor |ImageNet|78.41|examples/classification/configs/quantization/inception_v3_imagenet_int8.json|[Link](file://///icv-cifs.inn.intel.com/icv_projects/NNCF/compressed_models/NNCF_TF/inception_v3_int8_w_sym_t_a_sym_t.tar.gz)|
+|Inception V3|Sparsity 54% (Magnitude)|ImageNet|77.87|examples/classification/configs/sparsity/inception_v3_imagenet_magnitude_sparsity.json|[Link](file://///icv-cifs.inn.intel.com/icv_projects/NNCF/compressed_models/NNCF_TF/inception_v3_sparsity_54.tar.gz)|
+|MobileNet V2|INT8 w:sym,per-tensor a:sym,per-tensor |ImageNet|71.81|examples/classification/configs/quantization/mobilenet_v2_imagenet_int8.json|[Link](file://///icv-cifs.inn.intel.com/icv_projects/NNCF/compressed_models/NNCF_TF/mobilenet_v2_int8_w_sym_t_a_sym_t.tar.gz)|
+|MobileNet V2|Sparsity 35% (Magnitude)|ImageNet|72.36|examples/classification/configs/sparsity/mobilenet_v2_imagenet_magnitude_sparsity.json|[Link](file://///icv-cifs.inn.intel.com/icv_projects/NNCF/compressed_models/NNCF_TF/mobilenet_v2_sparsity_35.tar.gz)|

@@ -94,7 +94,7 @@ Quick jump to the samples:
 
 |**Model**|**Compression algorithm**|**Dataset**|**TensorFlow FP32 baseline**|**TensorFlow compressed accuracy**|
 | :---: | :---: | :---: | :---: | :---: |
-|Inception V3|INT8 w:sym,per-tensor a:sym,per-tensor |ImageNet|77.9|78.27|
+|Inception V3|INT8 w:sym,per-tensor a:sym,per-tensor |ImageNet|77.9|78.41|
 |Inception V3|Sparsity 54% (Magnitude)|ImageNet|77.9|77.87|
 |MobileNet V2|INT8 w:sym,per-tensor a:sym,per-tensor |ImageNet|71.85|71.81|
 |MobileNet V2|Sparsity 35% (Magnitude)|ImageNet|71.85|72.36|
