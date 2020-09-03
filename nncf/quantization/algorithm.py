@@ -26,6 +26,7 @@ from ..graph import patterns as p
 from ..graph.transformations.layout import TransformationLayout
 from ..graph.transformations.commands import InsertionCommand, InsertionPoint, \
     InsertionWeightsPoint, TargetType
+from ..utils.logger import logger
 
 ACTIVATIONS = "activations"
 WEIGHTS = "weights"
@@ -36,6 +37,10 @@ QUANTIZER_GROUPS = [
 ]
 
 QUANTIZATION_LAYERS = LAYERS_WITH_WEIGHTS
+
+NOT_SUPPORT_LAYERS = [
+    'Lambda'
+]
 
 
 @COMPRESSION_ALGORITHMS.register('quantization')
@@ -84,8 +89,11 @@ class QuantizationBuilder(CompressionAlgorithmBuilder):
 
     def _get_transformation_layout(self, model):
         nxmodel = convert_keras_model_to_nxmodel(model)
-        transformations = TransformationLayout()
+        for node_name, node in nxmodel.nodes.items():
+            if node['type'] in NOT_SUPPORT_LAYERS:
+                logger.warning('The layer {} is not supported by the quantization algorithm'.format(node_name))
 
+        transformations = TransformationLayout()
         qconfig = self._get_default_qconfig(self.global_quantizer_contraints[WEIGHTS])
         for node_name, node in nxmodel.nodes.items():
             if node['type'] not in QUANTIZATION_LAYERS:
@@ -102,7 +110,7 @@ class QuantizationBuilder(CompressionAlgorithmBuilder):
         insertion_points = self._find_insertion_points(nxmodel)
         qconfig = self._get_default_qconfig(self.global_quantizer_contraints[ACTIVATIONS])
         for node_name in insertion_points:
-            fake_quantize_layer = FakeQuantize(qconfig)
+            fake_quantize_layer = FakeQuantize(qconfig, name='{}/fake_quantize'.format(node_name))
             transformations.register(
                 InsertionCommand(
                     InsertionPoint(TargetType.AFTER_LAYER, node_name),
@@ -111,8 +119,8 @@ class QuantizationBuilder(CompressionAlgorithmBuilder):
         return transformations
 
     def _find_insertion_points(self, nxmodel):
-        pattern = p.LINEAR_OPS | p.ARITHMETIC | p.ANY_BN_RELU_COMBO | \
-                  p.LINEAR_OPS + p.ANY_BN_RELU_COMBO | p.ARITHMETIC + p.ANY_BN_RELU_COMBO | p.SINGLE_OPS
+        pattern = p.LINEAR_OPS | p.ARITHMETIC | p.ANY_BN_ACT_COMBO | \
+                  p.LINEAR_OPS + p.ANY_AG_BN_ACT_COMBO | p.ARITHMETIC + p.ANY_AG_BN_ACT_COMBO | p.SINGLE_OPS
 
         matches = search_all(nxmodel, pattern)
 

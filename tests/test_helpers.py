@@ -13,7 +13,7 @@
 
 import tensorflow as tf
 from tensorflow.python.ops.init_ops import Constant
-import  numpy as np
+import numpy as np
 
 from nncf import create_compressed_model
 from nncf.configs.config import Config
@@ -46,6 +46,7 @@ def get_empty_config(input_sample_sizes=None):
 
 def create_compressed_model_and_algo_for_test(model, config):
     assert isinstance(config, Config)
+    tf.keras.backend.clear_session()
     algo, model = create_compressed_model(model, config)
     return model, algo
 

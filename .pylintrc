@@ -8,7 +8,8 @@ disable = arguments-differ,
           too-few-public-methods,
           too-many-arguments,
           too-many-instance-attributes,
-          too-many-locals
+          too-many-locals,
+          duplicate-code
 max-line-length = 120
 ignore-docstrings = yes
 ignored-modules = numpy,tensorflow
@@ -21,5 +22,5 @@ bad-functions = print
 good-names = logger,fn
 
 [DESIGN]
-max-statements=60
+max-statements=120
 max-branches=13

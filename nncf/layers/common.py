@@ -21,3 +21,27 @@ LAYERS_WITH_WEIGHTS = {
     'Conv3DTranspose': {'weight_attr_name': 'kernel', 'channel_axes': -2},
     'Dense': {'weight_attr_name': 'kernel', 'channel_axes': -1}
 }
+
+LAYERS_AGNOSTIC_TO_DATA_PRECISION_WITH_ONE_INPUT = [
+    'Cropping1D',
+    'Cropping2D',
+    'Cropping3D',
+    'Flatten',
+    'GlobalMaxPool1D',
+    'GlobalMaxPool2D',
+    'GlobalMaxPool3D',
+    'GlobalMaxPooling1D',
+    'GlobalMaxPooling2D',
+    'GlobalMaxPooling3D',
+    'MaxPool1D',
+    'MaxPool2D',
+    'MaxPool3D',
+    'MaxPooling1D',
+    'MaxPooling2D',
+    'MaxPooling3D',
+    'RepeatVector',
+    'Reshape',
+    'ZeroPadding1D',
+    'ZeroPadding2D',
+    'ZeroPadding3D'
+]
