@@ -11,22 +11,28 @@
  limitations under the License.
 """
 
+import operator
+from functools import reduce
+
 from .pattern_matching import NodeExpression as N
+from ..layers.common import LAYERS_WITH_WEIGHTS, LAYERS_AGNOSTIC_TO_DATA_PRECISION_WITH_ONE_INPUT
 
-LINEAR_OPS = N('Dense') | N('Conv2D') | N('DepthwiseConv2D') | N('Conv2DTranspose') | N('Conv3D') | N('Conv3DTranspose')
+LIST_LINEAR_OPS = [N(layer) for layer in LAYERS_WITH_WEIGHTS]
+LINEAR_OPS = reduce(operator.or_, LIST_LINEAR_OPS[1:], LIST_LINEAR_OPS[0])
 
-RELU = N('ReLU') | N('ThresholdedReLU')
+LIST_AGNOSTIC_OPS = [N(layer) for layer in LAYERS_AGNOSTIC_TO_DATA_PRECISION_WITH_ONE_INPUT]
+AG = reduce(operator.or_, LIST_AGNOSTIC_OPS[1:], LIST_AGNOSTIC_OPS[0])
+
+ACT = N('ReLU') | N('ThresholdedReLU') | N('ELU') | N('PReLU') | N('LeakyReLU') | N('Activation')
 
 BN = N('BatchNormalization')
 
-ANY_BN_RELU_COMBO = BN + RELU | RELU + BN | BN | RELU
+ANY_BN_ACT_COMBO = BN + ACT | ACT + BN | BN | ACT
+
+ANY_AG_BN_ACT_COMBO = AG + ACT | ANY_BN_ACT_COMBO
 
 POOLING = N('AveragePooling2D') | N('AveragePooling3D') | N('GlobalAveragePooling2D') | N('GlobalAveragePooling3D')
 
-NON_RELU_ACTIVATIONS = N('ELU') | N('PReLU') | N('LeakyReLU')
-
-SINGLE_OPS = NON_RELU_ACTIVATIONS | POOLING | N('Average') | N('LayerNormalization')
+SINGLE_OPS = POOLING | N('Average') | N('LayerNormalization')
 
 ARITHMETIC = N('Add') | N('add') | N('Multiply') | N('multiply')
-
-ELTWISE_UNIFORM_OPS = BN | RELU | NON_RELU_ACTIVATIONS

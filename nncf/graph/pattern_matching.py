@@ -225,10 +225,10 @@ def search_all(graph: nx.DiGraph, expression: Expression) -> List[List[str]]:
     for subgraph in weakly_subgraphs:
         dfs_order = nx.topological_sort(subgraph)
         for node in dfs_order:
-            match, _ = expression.match([node], graph)
-
             if node in matched_nodes:
                 continue
+
+            match, _ = expression.match([node], graph)
 
             if match:
                 for mn in match:

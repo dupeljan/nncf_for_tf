@@ -42,6 +42,7 @@ class ModelTransformer:
             list(get_custom_objects(model).items()) + list(get_nncf_custom_objects().items())
         )
         self._transformations = transformation_layout.transformations
+        self._name_mapping = {}
 
     def transform(self):
         """ Applies transformations to the Keras model.
@@ -107,10 +108,14 @@ class ModelTransformer:
             raise TypeError('Type {} of operation does not support'.format(transformation.type))
 
     def _insert(self, target_point, insertion_objects):
+        target_layer_name = target_point.layer_name
+        if target_point.layer_name in self._name_mapping:
+            target_layer_name = self._name_mapping[target_point.layer_name]
+
         if target_point.type == TargetType.WEIGHT_OPERATION:
-            self._insert_weight_operations(target_point.layer_name, target_point.weights_attr_name, insertion_objects)
+            self._insert_weight_operations(target_layer_name, target_point.weights_attr_name, insertion_objects)
         elif target_point.type == TargetType.AFTER_LAYER:
-            self._insert_layers_after(target_point.layer_name, insertion_objects)
+            self._insert_layers_after(target_layer_name, insertion_objects)
         else:
             raise TypeError('Type {} of target point does not support'.format(target_point.type))
 
@@ -131,6 +136,8 @@ class ModelTransformer:
             self._replace_functional(layer_name, raplace_layer_config)
         else:
             self._replace_sequential(layer_name, raplace_layer_config)
+
+        self._name_mapping[layer_name] = raplace_layer_config['name']
 
     def _replace_functional(self, layer_name, raplace_layer_config):
         for layer in self._model_config['layers']:
