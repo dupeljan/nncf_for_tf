@@ -62,7 +62,7 @@ python main.py \
 --config=configs/quantization/mobilenet_v2_imagenet_int8.json \
 --resume=<path_to_trained_model_checkpoint>
 ```
-To validate an FP32 model checkpoint, make sure the compression algorithm settings are empty in the configuration file or `pretrained=True` is set.
+To validate an FP32 model checkpoint, make sure the compression algorithm settings are empty in the configuration file and `pretrained=True` is set.
 
 ### Export Compressed Model
 

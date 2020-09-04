@@ -163,9 +163,9 @@ def train_test_export(config):
         compression_ctrl.initialize(dataset=train_dataset)
 
         initial_epoch = 0
-        if config.get('resume_checkpoint', False):
+        if config.ckpt_path is not None:
             initial_epoch = resume_from_checkpoint(model=compress_model,
-                                                   ckpt_path=config.model_dir,
+                                                   ckpt_path=config.ckpt_path,
                                                    train_steps=train_steps)
 
     callbacks = get_callbacks(
@@ -213,7 +213,6 @@ def export(config):
     model, model_params = get_model(config.model,
                                     pretrained=config.get('pretrained', True))
     model = model(**model_params)
-
     compression_ctrl, compress_model = create_compressed_model(model, config)
 
     metrics = get_metrics()
@@ -221,11 +220,11 @@ def export(config):
 
     compress_model.compile(loss=loss_obj,
                            metrics=metrics)
-
     compress_model.summary()
 
-    load_checkpoint(model=compress_model,
-                    ckpt_path=config.model_dir)
+    if config.ckpt_path is not None:
+        load_checkpoint(model=compress_model,
+                        ckpt_path=config.ckpt_path)
 
     save_path, save_format = get_saving_parameters(config)
     compression_ctrl.export_model(save_path, save_format)
