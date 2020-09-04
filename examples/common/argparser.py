@@ -32,6 +32,16 @@ def get_common_argument_parser():
         help=("train: performs training and validation; test: tests the model; export: exports the model"))
 
     parser.add_argument(
+        "--resume",
+        metavar='PATH',
+        type=str,
+        default=None,
+        dest='ckpt_path',
+        help="Specifies the path to the checkpoint to resume training, test or export model "
+             "from the defined checkpoint or folder with checkpoints to resume training, test "
+             "or export from the last checkpoint.")
+
+    parser.add_argument(
         "--checkpoint-save-dir",
         metavar='PATH',
         type=str,
