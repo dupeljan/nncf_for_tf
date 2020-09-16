@@ -146,9 +146,17 @@ class ModelTransformer:
                     if connection_info[0] == layer_name:
                         connection_info[0] = raplace_layer_config['name']
 
-        for output_layer in self._model_config['output_layers']:
-            if output_layer[0] == layer_name:
-                output_layer[0] = raplace_layer_config['name']
+        def _replace_output_layer_name(output_layers_):
+            for output_layer in output_layers_:
+                if output_layer[0] == layer_name:
+                    output_layer[0] = raplace_layer_config['name']
+
+        output_layers = self._model_config['output_layers']
+        if isinstance(output_layers, list):
+            _replace_output_layer_name(output_layers)
+        elif isinstance(output_layers, dict):
+            for out_layers in output_layers.values():
+                _replace_output_layer_name(out_layers.values())
 
         idx, layer_config = self._find_layer_config(layer_name)
         raplace_layer_config['inbound_nodes'] = layer_config['inbound_nodes']
