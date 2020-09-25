@@ -193,7 +193,7 @@ class TimeHistory(tf.keras.callbacks.Callback):
     def on_epoch_begin(self, epoch, logs=None):
         self.epoch_start = time.time()
 
-    def on_batch_begin(self, batch, logs=None):
+    def on_train_batch_begin(self, batch, logs=None):
         if not self.start_time:
             self.start_time = time.time()
 
@@ -202,7 +202,7 @@ class TimeHistory(tf.keras.callbacks.Callback):
             self.timestamp_log.append(BatchTimestamp(self.global_steps,
                                                      self.start_time))
 
-    def on_batch_end(self, batch, logs=None):
+    def on_train_batch_end(self, batch, logs=None):
         """Records elapse time of the batch and calculates examples per second."""
         self.steps_in_epoch = batch + 1
         steps_since_last_log = self.global_steps - self.last_log_step

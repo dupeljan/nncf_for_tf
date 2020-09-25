@@ -29,7 +29,7 @@ def get_common_argument_parser():
         nargs='+',
         choices=['train', 'test', 'export'],
         default='train',
-        help=("train: performs training and validation; test: tests the model; export: exports the model"))
+        help="train: performs training and validation; test: tests the model; export: exports the model")
 
     parser.add_argument(
         "--resume",

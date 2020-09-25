@@ -91,14 +91,14 @@ class CustomTensorBoard(tf.keras.callbacks.TensorBoard):
         self.step = initial_step
         self._track_lr = track_lr
 
-    def on_batch_begin(self,
-                       epoch: int, # pylint: disable=W0613
-                       logs: MutableMapping[str, Any] = None) -> None:
+    def on_train_batch_begin(self,
+                             batch: int,
+                             logs: MutableMapping[str, Any] = None) -> None:
         self.step += 1
         if logs is None:
             logs = {}
         logs.update(self._calculate_metrics())
-        super().on_batch_begin(self.step, logs)
+        super().on_train_batch_begin(batch, logs)
 
     def on_epoch_begin(self,
                        epoch: int,
