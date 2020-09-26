@@ -139,28 +139,19 @@ class ModelTransformer:
 
         self._name_mapping[layer_name] = raplace_layer_config['name']
 
-    def _replace_functional(self, layer_name, raplace_layer_config):
+    def _replace_functional(self, layer_name, replace_layer_config):
+        replace_layer_name = replace_layer_config['name']
         for layer in self._model_config['layers']:
             for inbound_node in layer['inbound_nodes']:
                 for connection_info in inbound_node:
                     if connection_info[0] == layer_name:
-                        connection_info[0] = raplace_layer_config['name']
+                        connection_info[0] = replace_layer_config['name']
 
-        def _replace_output_layer_name(output_layers_):
-            for output_layer in output_layers_:
-                if output_layer[0] == layer_name:
-                    output_layer[0] = raplace_layer_config['name']
-
-        output_layers = self._model_config['output_layers']
-        if isinstance(output_layers, list):
-            _replace_output_layer_name(output_layers)
-        elif isinstance(output_layers, dict):
-            for out_layers in output_layers.values():
-                _replace_output_layer_name(out_layers.values())
+        self._replace_in_model_outputs(layer_name, replace_layer_name)
 
         idx, layer_config = self._find_layer_config(layer_name)
-        raplace_layer_config['inbound_nodes'] = layer_config['inbound_nodes']
-        self._model_config['layers'][idx] = raplace_layer_config
+        replace_layer_config['inbound_nodes'] = layer_config['inbound_nodes']
+        self._model_config['layers'][idx] = replace_layer_config
 
     def _replace_sequential(self, layer_name, raplace_layer_config):
         idx, _ = self._find_layer_config(layer_name)
@@ -183,18 +174,30 @@ class ModelTransformer:
                 self._insert_layer_after_sequential(layer_name, config)
 
     def _insert_layer_after_functional(self, layer_name, layer_config):
+        replace_layer_name = layer_config['name']
         for layer in self._model_config['layers']:
             for inbound_node in layer['inbound_nodes']:
                 for connection_info in inbound_node:
                     if connection_info[0] == layer_name:
-                        connection_info[0] = layer_config['name']
+                        connection_info[0] = replace_layer_name
 
-        for output_layer in self._model_config['output_layers']:
-            if output_layer[0] == layer_name:
-                output_layer[0] = layer_config['name']
-
-        self._model_config['layers'].append(layer_config)
+        self._replace_in_model_outputs(layer_name, replace_layer_name)
+        self._insert_layer_after_sequential(layer_name, layer_config)
 
     def _insert_layer_after_sequential(self, layer_name, layer_configs):
         idx, _ = self._find_layer_config(layer_name)
-        self._model_config['layers'].insert(idx, layer_configs)
+        self._model_config['layers'].insert(idx + 1, layer_configs)
+
+    @staticmethod
+    def _replace_output_layer_name(output_layers, layer_name, replace_layer_name):
+        for output_layer in output_layers:
+            if output_layer[0] == layer_name:
+                output_layer[0] = replace_layer_name
+
+    def _replace_in_model_outputs(self, layer_name, replace_layer_name):
+        output_layers = self._model_config['output_layers']
+        if isinstance(output_layers, list):
+            self._replace_output_layer_name(output_layers, layer_name, replace_layer_name)
+        elif isinstance(output_layers, dict):
+            for out_layers in output_layers.values():
+                self._replace_output_layer_name(out_layers.values(), layer_name, replace_layer_name)

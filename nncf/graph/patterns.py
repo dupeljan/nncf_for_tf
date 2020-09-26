@@ -23,7 +23,9 @@ LINEAR_OPS = reduce(operator.or_, LIST_LINEAR_OPS[1:], LIST_LINEAR_OPS[0])
 LIST_AGNOSTIC_OPS = [N(layer) for layer in LAYERS_AGNOSTIC_TO_DATA_PRECISION_WITH_ONE_INPUT]
 AG = reduce(operator.or_, LIST_AGNOSTIC_OPS[1:], LIST_AGNOSTIC_OPS[0])
 
-ACT = N('ReLU') | N('ThresholdedReLU') | N('ELU') | N('PReLU') | N('LeakyReLU') | N('Activation')
+KERAS_ACTIVATIONS = N('ReLU') | N('ThresholdedReLU') | N('ELU') | N('PReLU') | N('LeakyReLU') | N('Activation')
+TF_ACTIVATIONS = N('Relu')
+ACT = KERAS_ACTIVATIONS | TF_ACTIVATIONS
 
 BN = N('BatchNormalization')
 
@@ -35,4 +37,6 @@ POOLING = N('AveragePooling2D') | N('AveragePooling3D') | N('GlobalAveragePoolin
 
 SINGLE_OPS = POOLING | N('Average') | N('LayerNormalization')
 
-ARITHMETIC = N('Add') | N('add') | N('Multiply') | N('multiply')
+KERAS_ARITHMETIC = N('Add') | N('Multiply')
+TF_ARITHMETIC = N('AddV2') | N('Mul')
+ARITHMETIC = KERAS_ARITHMETIC | TF_ARITHMETIC
