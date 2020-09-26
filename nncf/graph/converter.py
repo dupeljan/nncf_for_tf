@@ -35,7 +35,7 @@ def convert_keras_model_to_nxmodel(model):
     producer_layer = None
     for layer in model_config['layers']:
         layer_name = layer['name']
-        layer_type = layer['class_name']
+        layer_type = _get_layer_type(layer)
         data_format = layer['config'].get('data_format')
         nxmodel.add_node(layer_name, type=layer_type, data_format=data_format)
 
@@ -50,3 +50,9 @@ def convert_keras_model_to_nxmodel(model):
     #nx.drawing.nx_pydot.write_dot(nxmodel, str("nxmodel_graph.dot"))
 
     return nxmodel
+
+
+def _get_layer_type(layer):
+    if layer['class_name'] == 'TensorFlowOpLayer':
+        return layer['config']['node_def']['op']
+    return layer['class_name']

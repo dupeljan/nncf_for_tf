@@ -11,7 +11,7 @@
  limitations under the License.
 """
 
-LAYERS_WITH_WEIGHTS = {
+KERAS_LAYERS_WITH_WEIGHTS = {
     'Conv1D': {'weight_attr_name': 'kernel', 'channel_axes': -1},
     'Conv2D': {'weight_attr_name': 'kernel', 'channel_axes': -1},
     'Conv3D': {'weight_attr_name': 'kernel', 'channel_axes': -1},
@@ -22,7 +22,13 @@ LAYERS_WITH_WEIGHTS = {
     'Dense': {'weight_attr_name': 'kernel', 'channel_axes': -1}
 }
 
-LAYERS_AGNOSTIC_TO_DATA_PRECISION_WITH_ONE_INPUT = [
+TF_LAYERS_WITH_WEIGHTS = {}
+
+LAYERS_WITH_WEIGHTS = {}
+LAYERS_WITH_WEIGHTS.update(KERAS_LAYERS_WITH_WEIGHTS)
+LAYERS_WITH_WEIGHTS.update(TF_LAYERS_WITH_WEIGHTS)
+
+KERAS_LAYERS_AGNOSTIC_TO_DATA_PRECISION_WITH_ONE_INPUT = [
     'Cropping1D',
     'Cropping2D',
     'Cropping3D',
@@ -41,7 +47,18 @@ LAYERS_AGNOSTIC_TO_DATA_PRECISION_WITH_ONE_INPUT = [
     'MaxPooling3D',
     'RepeatVector',
     'Reshape',
+    'UpSampling2D'
     'ZeroPadding1D',
     'ZeroPadding2D',
     'ZeroPadding3D'
 ]
+
+TF_LAYERS_AGNOSTIC_TO_DATA_PRECISION_WITH_ONE_INPUT = [
+    'Identity',
+    'Pack',
+    'Pad',
+    'StridedSlice',
+]
+
+LAYERS_AGNOSTIC_TO_DATA_PRECISION_WITH_ONE_INPUT = \
+    KERAS_LAYERS_AGNOSTIC_TO_DATA_PRECISION_WITH_ONE_INPUT + TF_LAYERS_AGNOSTIC_TO_DATA_PRECISION_WITH_ONE_INPUT
