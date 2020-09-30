@@ -76,4 +76,5 @@ setuptools.setup(
     ],
     install_requires=INSTALL_REQUIRES,
     extras_require=EXTRAS_REQUIRE,
+    python_requires='>=3.6',
 )
