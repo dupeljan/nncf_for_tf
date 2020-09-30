@@ -1,0 +1,107 @@
+/* Config template to train Retinanet */
+
+{
+    "model": "RetinaNet",
+
+    "mode": "train",
+    "distributed": true,
+
+    "pretrained": true, // If it is `true` the pretrained backbones are used
+    "checkpoint": { // Backbone
+        "path": "/home/achurkin/nncf_tf/retinanet/resnet50-2018-02-07",
+        "prefix": "resnet50/"
+    },
+    // "weights": "/home/achurkin/od_sample/nncf_for_tf/retinanet_weights.h5", // Path to pretrained weights in H5 format
+
+    "epochs": 12,
+    "batch_size": 6, // Per replica batch size
+    "train_file_pattern": "/home/achurkin/media/sda/coco/coco_train_tfrecord/train-*", // Location of the train data
+    "eval_file_pattern": "/home/achurkin/media/sda/coco/coco_val_tfrecord/val-*", // Location of the eval data
+    "val_json_file": "/home/achurkin/media/sda/coco/raw-data/annotations/instances_val2017.json",
+
+    "optimizer": {
+        "type": "momentum",
+        "optimizer_params": {
+            "momentum": 0.9,
+            "nesterov": true
+        },
+        "schedule_type": "step",
+        "schedule_params": {
+            "warmup_learning_rate": 0.0067,
+            "warmup_steps": 500,
+            "init_learning_rate": 0.08,
+            "learning_rate_levels": [
+                0.008,
+                0.0008
+            ],
+            "learning_rate_steps": [
+                15000,
+                20000
+            ]
+        }
+    },
+
+    "dataset": "coco2017",
+    "weight_decay": 0.0001,
+
+    "preprocessing": {
+        "output_size": [640, 640],
+        "num_channels": 3,
+        "match_threshold": 0.5,
+        "unmatched_threshold": 0.5,
+        "aug_rand_hflip": true,
+        "aug_scale_min": 1.0,
+        "aug_scale_max": 1.0,
+        "skip_crowd_during_training": true,
+        "max_num_instances": 100
+    },
+
+    "model_params": {
+        "architecture": {
+            "backbone": {
+                "name": "resnet", // "resnet" or "spinenet"
+                "params": {
+                    "depth": 50 // or "model_id": "49" for "spinenet"
+                }
+            },
+            "min_level": 3,
+            "max_level": 7,
+            "multilevel_features": "fpn",
+            "fpn_params": {
+                "fpn_feat_dims": 256,
+                "use_separable_conv": false,
+                "use_batch_norm": true
+            },
+            "num_classes": 91, // Note that `num_classes` is the total number of classes including one background classes whose index is 0
+            "head_params": {
+                "num_convs": 4,
+                "num_filters": 256,
+                "use_separable_conv": false
+            }
+        },
+        "anchor": {
+            "num_scales": 3,
+            "aspect_ratios": [1.0, 2.0, 0.5],
+            "anchor_size": 4.0
+        },
+        "norm_activation": {
+            "activation": "relu",
+            "batch_norm_momentum": 0.997,
+            "batch_norm_epsilon": 0.0001,
+            "use_sync_bn": false
+        },
+        "loss_params": {
+            "focal_loss_alpha": 0.25,
+            "focal_loss_gamma": 1.5,
+            "huber_loss_delta": 0.1,
+            "box_loss_weight": 50
+        },
+        "postprocessing": {
+            "use_batched_nms": false,
+            "max_total_size": 100,
+            "nms_iou_threshold": 0.5,
+            "score_threshold": 0.05,
+            "pre_nms_num_boxes": 5000
+        }
+    }
+}
