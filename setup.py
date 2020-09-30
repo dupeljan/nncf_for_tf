@@ -37,13 +37,14 @@ def find_version(*file_paths):
 
 
 INSTALL_REQUIRES = [
-    "absl-py==0.8.1",
+    "absl-py==0.9",
     "addict",
     "networkx",
     "tensorflow==2.2.0",
     "tensorflow_model_optimization==0.3.0",
     "tensorflow_datasets",
-    "tensorflow_addons"
+    "tensorflow_addons",
+    "pycocotools"
 ]
 
 

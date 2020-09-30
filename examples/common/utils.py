@@ -239,3 +239,36 @@ class TimeHistory(tf.keras.callbacks.Callback):
 def set_hard_limit_num_open_files():
     _, high = resource.getrlimit(resource.RLIMIT_NOFILE)
     resource.setrlimit(resource.RLIMIT_NOFILE, (high, high))
+
+
+class SummaryWriter:
+    """Simple SummaryWriter for writing dictionary of metrics
+
+    Attributes:
+        writer: tf.SummaryWriter
+    """
+
+    def __init__(self, log_dir, name):
+        """Inits SummaryWriter with paths
+
+        Arguments:
+            log_dir: the model folder path
+            name: the summary subfolder name
+        """
+        self.writer = tf.summary.create_file_writer(os.path.join(log_dir, name)) # pylint: disable=E1101
+
+    def __call__(self, metrics, step):
+        """Write metrics to summary with the given writer
+
+        Args:
+            metrics: a dictionary of metrics values
+            step: integer. The training step
+        """
+
+        with self.writer.as_default(): # pylint: disable=E1129
+            for metric_name, value in metrics.items():
+                tf.summary.scalar(metric_name, value, step=step)
+        self.writer.flush()
+
+    def close(self):
+        self.writer.close()
