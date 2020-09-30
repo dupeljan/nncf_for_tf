@@ -79,7 +79,7 @@ class CompressionScheduler:
         """
         Should be called after each optimizer step during training.
         Arguments:
-            `last` - specifies the initial "previous" step
+            `last` - specifies the initial "previous" step.
         """
         if last is None:
             last = self.last_step + 1
@@ -89,7 +89,7 @@ class CompressionScheduler:
         """
         Should be called after each training epoch.
         Arguments:
-            `last` - specifies the initial "previous" epoch
+            `last` - specifies the initial "previous" epoch.
         """
         if last is None:
             last = self.last_epoch + 1
@@ -135,11 +135,21 @@ class CompressionAlgorithmController:
     Hosts entities that are to be used during the training process, such as compression scheduler and
     compression loss.
     """
+
     def __init__(self, target_model):
+        """
+        Arguments:
+          `target_model` - model with additional modifications necessary to enable algorithm-specific
+                           compression during fine-tuning built by the `CompressionAlgorithmBuilder`.
+        """
         self._model = target_model
         self._loss = CompressionLoss()
         self._scheduler = CompressionScheduler()
         self._initializer = CompressionAlgorithmInitializer()
+
+    @property
+    def model(self):
+        return self._model
 
     @property
     def loss(self):
@@ -149,10 +159,6 @@ class CompressionAlgorithmController:
     def scheduler(self):
         return self._scheduler
 
-    @property
-    def initializer(self):
-        return self._initializer
-
     def initialize(self, dataset=None, loss=None):
         """
         Configures certain parameters of the algorithm that require access to the dataset
@@ -160,7 +166,7 @@ class CompressionAlgorithmController:
         to the loss function to be used during fine-tuning (for example, to determine
         quantizer precision bitwidth using HAWQ).
         """
-        self.initializer(self._model, dataset, loss)
+        self._initializer(self._model, dataset, loss)
 
     def statistics(self):
         """
@@ -177,47 +183,67 @@ class CompressionAlgorithmController:
         Arguments:
            `save_path` - a path to export model.
            `save_format` - saving format (`frozen_graph` for Frozen Graph,
-           `tf` for Tensorflow SavedModel, `h5` for Keras H5 format)
+           `tf` for Tensorflow SavedModel, `h5` for Keras H5 format).
         """
-        stripped_model = self.strip_model()
+        stripped_model = self.strip_model(self.model)
         save_model(stripped_model, save_path, save_format)
 
-    def strip_model(self):
-        return self._model
+    def strip_model(self, model):
+        """
+        Strips auxiliary layers that were used for the model compression, as it's only needed
+        for training. The method is used before exporting model in the target format.
+        Arguments:
+            model: compressed model.
+        Returns:
+             A stripped model.
+        """
+        return model
 
 
 class CompressionAlgorithmBuilder:
     """
-    Determines which modifications should be made to the original FP32 model in
+    Determines which modifications should be made to the original model in
     order to enable algorithm-specific compression during fine-tuning.
     """
 
     def __init__(self, config: Config):
         """
         Arguments:
-          `config` - a dictionary that contains parameters of compression method
+          `config` - a dictionary that contains parameters of compression method.
         """
         self.config = config
-        if not isinstance(self.config, list):
-            self.ignored_scopes = self.config.get('ignored_scopes')
-            self.target_scopes = self.config.get('target_scopes')
 
     def apply_to(self, model):
         """
         Applies algorithm-specific modifications to the model.
+        Arguments:
+            model: original uncompressed model.
+        Returns:
+             Model with additional modifications necessary to enable algorithm-specific
+             compression during fine-tuning.
         """
-        transformation_layout = self._get_transformation_layout(model)
+        transformation_layout = self.get_transformation_layout(model)
         return ModelTransformer(model, transformation_layout).transform()
 
     def build_controller(self, model):
         """
-        Should be called once the compressed model target_model is fully constructed
+        Builds `CompressionAlgorithmController` to handle to the additional modules, parameters
+        and hooks inserted into the model in order to enable algorithm-specific compression.
+        Arguments:
+            model: model with additional modifications necessary to enable
+                   algorithm-specific compression during fine-tuning.
+        Returns:
+            An instance of the `CompressionAlgorithmController`.
         """
         return CompressionAlgorithmController(model)
 
-    def _get_transformation_layout(self, model):
+    def get_transformation_layout(self, model):
         """
-        Returns an object of the TransformationLayout class containing a list of
-        algorithm-specific modifications
+        Computes necessary model transformations to enable algorithm-specific compression.
+        Arguments:
+            model: original uncompressed model.
+        Returns:
+            An instance of the `TransformationLayout` class containing a list of
+            algorithm-specific modifications.
         """
         raise NotImplementedError

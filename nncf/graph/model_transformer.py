@@ -11,7 +11,7 @@
  limitations under the License.
 """
 
-from collections import OrderedDict
+from collections import OrderedDict, namedtuple
 import tensorflow as tf
 
 from .utils import get_custom_objects, is_sequential_or_functional_model, \
@@ -19,6 +19,9 @@ from .utils import get_custom_objects, is_sequential_or_functional_model, \
 from .transformations.commands import TransformationType, TargetType
 from ..layers.custom_objects import get_nncf_custom_objects
 from ..layers.wrapper import NNCFWrapper
+
+WeightOperations = namedtuple('WeightOperations',
+                              ('weights_attr_name', 'operations'))
 
 
 class ModelTransformer:
@@ -54,7 +57,7 @@ class ModelTransformer:
             layer_weights_map[layer.name] = self._get_layer_weights(layer)
 
         for transform in self._transformations:
-            self._apply_transforamtion(transform)
+            self._apply_transformation(transform)
 
         if is_functional_model(self._model):
             transformed_model = tf.keras.Model.from_config(self._model_config, self._custom_objects)
@@ -91,6 +94,12 @@ class ModelTransformer:
         for layer in self._model.layers:
             if layer.name == layer_name:
                 return layer
+
+        _, layer_config = self._find_layer_config(layer_name)
+        if layer_config:
+            return tf.keras.utils.deserialize_keras_object(
+                layer_config, custom_objects=self._custom_objects)
+
         return None
 
     def _find_layer_config(self, layer_name):
@@ -99,13 +108,24 @@ class ModelTransformer:
                 return idx, layer
         return None, None
 
-    def _apply_transforamtion(self, transformation):
+    def _update_layer_mapping(self, src_layer_name, dst_layer_name):
+        if src_layer_name in self._name_mapping.values():
+            for orig_layer_name in self._name_mapping:
+                if self._name_mapping[orig_layer_name] == src_layer_name:
+                    self._name_mapping[orig_layer_name] = dst_layer_name
+        else:
+            self._name_mapping[src_layer_name] = dst_layer_name
+
+    def _apply_transformation(self, transformation):
         if transformation.type == TransformationType.INSERT:
             self._insert(transformation.target_point, transformation.insertion_objects)
+        elif transformation.type == TransformationType.MULTI_INSERT:
+            self._multi_insertion(transformation.target_point, transformation.commands)
         elif transformation.type == TransformationType.REMOVE:
-            raise NotImplementedError
+            self._remove(transformation.target_point)
         else:
-            raise TypeError('Type {} of operation does not support'.format(transformation.type))
+            raise TypeError('Transformation type {} does not support'
+                            .format(transformation.type))
 
     def _insert(self, target_point, insertion_objects):
         target_layer_name = target_point.layer_name
@@ -113,31 +133,94 @@ class ModelTransformer:
             target_layer_name = self._name_mapping[target_point.layer_name]
 
         if target_point.type == TargetType.WEIGHT_OPERATION:
-            self._insert_weight_operations(target_layer_name, target_point.weights_attr_name, insertion_objects)
+            weight_operations = [
+                WeightOperations(target_point.weights_attr_name, insertion_objects)]
+            self._insert_weight_operations(target_layer_name, weight_operations)
         elif target_point.type == TargetType.AFTER_LAYER:
             self._insert_layers_after(target_layer_name, insertion_objects)
         else:
-            raise TypeError('Type {} of target point does not support'.format(target_point.type))
+            raise TypeError('Insertion transform does not support {} '
+                            'target point type'.format(target_point.type))
 
-    def _insert_weight_operations(self, layer_name, weights_attr_name, operations):
+    def _multi_insertion(self, target_point, commands):
+        if target_point.type != TargetType.LAYER:
+            raise TypeError('Multiple insertion transform does not support '
+                            '{} target point type'.format(target_point.type))
+
+        target_layer_name = target_point.layer_name
+        if target_point.layer_name in self._name_mapping:
+            target_layer_name = self._name_mapping[target_point.layer_name]
+
+        weight_operations = []
+        for cmd in commands:
+            if cmd.type != TransformationType.INSERT or \
+                    cmd.target_point != TargetType.WEIGHT_OPERATION:
+                raise TypeError('Multiple insertion transform does not support command: '
+                                'command type - {}; target point type - {}'
+                                .format(cmd.type, cmd.target_point))
+            weight_operations.append(
+                WeightOperations(
+                    cmd.target_point.weights_attr_name,
+                    cmd.insertion_objects
+                ))
+
+        self._insert_weight_operations(target_layer_name, weight_operations)
+
+    def _remove(self, target_point):
+        target_layer_name = target_point.layer_name
+        if target_point.layer_name in self._name_mapping:
+            target_layer_name = self._name_mapping[target_point.layer_name]
+
+        if target_point.type == TargetType.WEIGHT_OPERATION:
+            self._remove_weight_operation(
+                target_layer_name,
+                target_point.weights_attr_name,
+                target_point.operation_name)
+        else:
+            raise TypeError('{} removal does not support'.format(target_point.type))
+
+    def _remove_weight_operation(self, layer_name, weights_attr_name, operation_name):
+        _, layer_config = self._find_layer_config(layer_name)
+        weights_operations = layer_config['config']['weights_attr_operations'].pop(weights_attr_name)
+
+        def find_weights_operation(operations, name):
+            for op in operations:
+                if op['name'] == name:
+                    return op
+            return None
+
+        found = find_weights_operation(weights_operations, operation_name)
+        weights_operations.remove(found)
+
+        if weights_operations:
+            layer_config['config']['weights_attr_operations'][weights_attr_name] = weights_operations
+        elif not layer_config['config']['weights_attr_operations']:
+            self._replace_config(layer_name, layer_config['config']['layer'])
+
+    def _insert_weight_operations(self, layer_name, weight_operations):
         layer = self._get_layer(layer_name)
-        wrapper = NNCFWrapper(layer)
+        wrapper = layer if isinstance(layer, NNCFWrapper) else NNCFWrapper(layer)
 
-        for op in operations:
-            wrapper.registry_weight_operation(weights_attr_name, op)
+        for weights_attr_name, operations in weight_operations:
+            for op in operations:
+                wrapper.registry_weight_operation(weights_attr_name, op)
 
         self._replace(layer_name, wrapper)
 
-    def _replace(self, layer_name, raplace_layer):
-        raplace_layer_config = tf.keras.utils.serialize_keras_object(raplace_layer)
-        raplace_layer_config['name'] = raplace_layer_config['config']['name']
+    def _replace(self, layer_name, replace_layer):
+        replace_layer_config = tf.keras.utils.serialize_keras_object(replace_layer)
+        self._replace_config(layer_name, replace_layer_config)
+
+    def _replace_config(self, layer_name, replace_layer_config):
+        if 'name' not in replace_layer_config:
+            replace_layer_config['name'] = replace_layer_config['config']['name']
 
         if is_functional_model(self._model):
-            self._replace_functional(layer_name, raplace_layer_config)
+            self._replace_functional(layer_name, replace_layer_config)
         else:
-            self._replace_sequential(layer_name, raplace_layer_config)
+            self._replace_sequential(layer_name, replace_layer_config)
 
-        self._name_mapping[layer_name] = raplace_layer_config['name']
+        self._update_layer_mapping(layer_name, replace_layer_config['name'])
 
     def _replace_functional(self, layer_name, replace_layer_config):
         replace_layer_name = replace_layer_config['name']
@@ -153,9 +236,9 @@ class ModelTransformer:
         replace_layer_config['inbound_nodes'] = layer_config['inbound_nodes']
         self._model_config['layers'][idx] = replace_layer_config
 
-    def _replace_sequential(self, layer_name, raplace_layer_config):
+    def _replace_sequential(self, layer_name, replace_layer_config):
         idx, _ = self._find_layer_config(layer_name)
-        self._model_config['layers'][idx] = raplace_layer_config
+        self._model_config['layers'][idx] = replace_layer_config
 
     def _insert_layers_after(self, layer_name, layers):
         layer_configs = []

@@ -24,8 +24,8 @@ from ..graph.converter import convert_keras_model_to_nxmodel
 from ..graph.pattern_matching import search_all
 from ..graph import patterns as p
 from ..graph.transformations.layout import TransformationLayout
-from ..graph.transformations.commands import InsertionCommand, InsertionPoint, \
-    InsertionWeightsPoint, TargetType
+from ..graph.transformations.commands import InsertionCommand, AfterLayer, LayerWeight,\
+    TransformationPriority
 from ..utils.logger import logger
 
 ACTIVATIONS = "activations"
@@ -87,7 +87,7 @@ class QuantizationBuilder(CompressionAlgorithmBuilder):
         quantizer_cls = NNCF_QUANTIZATION_OPERATONS.get(qconfig.mode)
         return quantizer_cls(qconfig)
 
-    def _get_transformation_layout(self, model):
+    def get_transformation_layout(self, model):
         nxmodel = convert_keras_model_to_nxmodel(model)
         for node_name, node in nxmodel.nodes.items():
             if node['type'] in NOT_SUPPORT_LAYERS:
@@ -104,8 +104,10 @@ class QuantizationBuilder(CompressionAlgorithmBuilder):
             weight_attr_name = QUANTIZATION_LAYERS[node['type']]['weight_attr_name']
             transformations.register(
                 InsertionCommand(
-                    InsertionWeightsPoint(node_name, weight_attr_name),
-                    operation))
+                    target_point=LayerWeight(node_name, weight_attr_name),
+                    callable_object=operation,
+                    priority=TransformationPriority.QUANTIZATION_PRIORITY
+                ))
 
         insertion_points = self._find_insertion_points(nxmodel)
         qconfig = self._get_default_qconfig(self.global_quantizer_contraints[ACTIVATIONS])
@@ -113,8 +115,10 @@ class QuantizationBuilder(CompressionAlgorithmBuilder):
             fake_quantize_layer = FakeQuantize(qconfig, name='{}/fake_quantize'.format(node_name))
             transformations.register(
                 InsertionCommand(
-                    InsertionPoint(TargetType.AFTER_LAYER, node_name),
-                    fake_quantize_layer))
+                    target_point=AfterLayer(node_name),
+                    callable_object=fake_quantize_layer,
+                    priority=TransformationPriority.QUANTIZATION_PRIORITY
+                ))
 
         return transformations
 
@@ -149,4 +153,4 @@ class QuantizationController(CompressionAlgorithmController):
         self._initializer = MinMaxInitializer()
 
     def initialize(self, dataset=None, loss=None):
-        self.initializer(self._model, dataset, loss)
+        self._initializer(self._model, dataset, loss)

@@ -19,8 +19,10 @@ from ..schedulers import SPARSITY_SCHEDULERS
 from ...algorithm_selector import COMPRESSION_ALGORITHMS
 from ...api.compression import CompressionAlgorithmController, CompressionAlgorithmBuilder
 from ...graph.converter import convert_keras_model_to_nxmodel
-from ...graph.transformations.commands import InsertionCommand, InsertionWeightsPoint
+from ...graph.transformations.commands import InsertionCommand, RemovalCommand, LayerWeight,\
+    LayerWeightOperation, TransformationPriority
 from ...graph.transformations.layout import TransformationLayout
+from ...graph.model_transformer import ModelTransformer
 from ...graph.utils import collect_wrapped_layers
 from ...layers.wrapper import NNCFWrapper
 
@@ -44,7 +46,7 @@ PRUNING_LAYERS = {
 @COMPRESSION_ALGORITHMS.register('magnitude_sparsity')
 class MagnitudeSparsityBuilder(CompressionAlgorithmBuilder):
 
-    def _get_transformation_layout(self, model):
+    def get_transformation_layout(self, model):
         nxmodel = convert_keras_model_to_nxmodel(model)
         transformations = TransformationLayout()
 
@@ -56,8 +58,10 @@ class MagnitudeSparsityBuilder(CompressionAlgorithmBuilder):
             operation = BinaryMask()
             transformations.register(
                 InsertionCommand(
-                    InsertionWeightsPoint(node_name, weight_attr_name),
-                    operation))
+                    target_point=LayerWeight(node_name, weight_attr_name),
+                    callable_object=operation,
+                    priority=TransformationPriority.SPARSIFICATION_PRIORITY
+                ))
 
         return transformations
 
@@ -82,59 +86,44 @@ class MagnitudeSparsityController(CompressionAlgorithmController):
         scheduler_cls = SPARSITY_SCHEDULERS.get(params.get("schedule", "polynomial"))
         self._scheduler = scheduler_cls(self, params)
 
-    def strip_model(self):
-        if not isinstance(self._model, tf.keras.Model):
+    def strip_model(self, model):
+        if not isinstance(model, tf.keras.Model):
             raise ValueError(
-                'Expected model to be a `tf.keras.Model` instance but got: ', self._model)
+                'Expected model to be a `tf.keras.Model` instance but got: ', model)
 
-        def _strip_wrapper(layer):
+        transformations = TransformationLayout()
+
+        for layer in model.layers:
             if isinstance(layer, NNCFWrapper):
-                # TODO add
-                # if not hasattr(layer.layer, '_batch_input_shape') and hasattr(
-                #         layer, '_batch_input_shape'):
-                #     layer.layer._batch_input_shape = layer._batch_input_shape
+                for weight_attr, ops in layer.weights_attr_ops.items():
+                    # BinaryMask operation must be the first operation
+                    op_name, op = next(iter(ops.items()))
+                    if isinstance(op, BinaryMask):
+                        self._apply_mask(layer, weight_attr, op_name)
 
-                if not self._maybe_apply_op(layer):
-                    return layer
+                        transformations.register(
+                            RemovalCommand(
+                                target_point=LayerWeightOperation(
+                                    layer.name,
+                                    weights_attr_name=weight_attr,
+                                    operation_name=op_name)
+                            ))
 
-                # pylint: disable=protected-access
-                layer.layer._trainable_weights = layer._trainable_weights + layer.layer._trainable_weights
-                mask_names = [ops_weight.name for ops_weight in layer.ops_weights.values()]
-
-                non_trainable_weights = [weight for weight in layer._non_trainable_weights
-                                         if weight.name not in mask_names]
-                layer.layer._non_trainable_weights += non_trainable_weights
-                return layer.layer
-            return layer
-
-        return tf.keras.models.clone_model(
-            self._model, input_tensors=None, clone_function=_strip_wrapper)
+        return ModelTransformer(model, transformations).transform()
 
     def freeze(self):
         pass
 
     @staticmethod
-    def _maybe_apply_op(wrapped_layer):
-        """checks whether operation is applicable and applies it if possible"""
-
-        # check whether operation is applicable:
-        # BinaryMask operation must be the first operation and currently the only one
-        for ops in wrapped_layer.weights_attr_ops.values():
-            if ops and not isinstance(next(iter(ops.values())), BinaryMask) or len(ops) != 1:
-                return False
-
-        # Mask application
-        for weight_attr, ops in wrapped_layer.weights_attr_ops.items():
-            layer_weight = wrapped_layer.layer_weights[weight_attr]
-            if ops:
-                op_name, op = next(iter(ops.items()))
-                layer_weight.assign(
-                    op(layer_weight,
-                       wrapped_layer.ops_weights[op_name],
-                       False)
-                )
-            wrapped_layer.set_weight(weight_attr, layer_weight)
-        return True
+    def _apply_mask(wrapped_layer, weight_attr, op_name):
+        layer_weight = wrapped_layer.layer_weights[weight_attr]
+        op = wrapped_layer.weights_attr_ops[weight_attr][op_name]
+        layer_weight.assign(
+            op(layer_weight,
+               wrapped_layer.ops_weights[op_name],
+               False)
+        )
+        wrapped_layer.set_weight(weight_attr, layer_weight)
 
     def set_sparsity_level(self, sparsity_level):
         if sparsity_level >= 1 or sparsity_level < 0:

@@ -5,8 +5,9 @@
         "sample_size": [1, 224, 224, 3]
     },
 
-    "batch_size": 1024,
+    "batch_size": 256,
     "epochs": 40,
+    "distributed": true,
 
      "optimizer": {
         "type": "adam",
