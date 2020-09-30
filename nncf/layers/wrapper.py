@@ -137,11 +137,13 @@ class NNCFWrapper(tf.keras.layers.Wrapper):
                                   training)
             self.set_weight(weight_attr, layer_weight)
 
-    def registry_weight_operation(self, weights_attr, op):
+    def registry_weight_operation(self, weights_attr, op, op_name=None):
         if weights_attr not in self.weights_attr_ops:
             self.weights_attr_ops[weights_attr] = OrderedDict()
 
-        op_name = 'nncf_op_{}:{}'.format(weights_attr, len(self.weights_attr_ops[weights_attr]))
+        if op_name is None:
+            op_name = 'nncf_op_{}:{}'.format(weights_attr, len(self.weights_attr_ops[weights_attr]))
+
         self.weights_attr_ops[weights_attr][op_name] = op
         return op_name
 
@@ -174,9 +176,9 @@ class NNCFWrapper(tf.keras.layers.Wrapper):
         for weights_attr, ops in self.weights_attr_ops.items():
             weights_attr_ops[weights_attr] = []
             for op_name in ops:
-                weights_attr_ops[weights_attr].append(
-                    tf.keras.utils.serialize_keras_object(ops[op_name])
-                )
+                op_config = tf.keras.utils.serialize_keras_object(ops[op_name])
+                op_config['name'] = op_name
+                weights_attr_ops[weights_attr].append(op_config)
         config['weights_attr_operations'] = weights_attr_ops
         return config
 
@@ -191,9 +193,12 @@ class NNCFWrapper(tf.keras.layers.Wrapper):
 
         for weights_attr, operations in weights_attr_ops_config.items():
             for op_config in operations:
-                wrapper.registry_weight_operation(weights_attr, tf.keras.layers.deserialize(
-                    op_config,
-                    custom_objects=get_nncf_custom_objects()
-                ))
+                wrapper.registry_weight_operation(
+                    weights_attr,
+                    tf.keras.layers.deserialize(
+                        op_config,
+                        custom_objects=get_nncf_custom_objects()),
+                    op_config.get('name', None)
+                )
 
         return wrapper

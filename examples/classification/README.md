@@ -97,7 +97,7 @@ python main.py \
 
 To export a model to the OpenVINO IR and run it using the Intel® Deep Learning Deployment Toolkit, refer to this [tutorial](https://software.intel.com/en-us/openvino-toolkit).
 
-### Results for quantization
+### Results
 
 > **NOTE**: If the link to a TensorFlow checkpoint doesn't open, copy the link and place it directly into your browser. Since Tensorflow checkpoints are stored in a shared folder, browsers such as Firefox and Chrome can not open these links by default ([see more information](https://support.google.com/gsa/answer/2664790?hl=en)). 
 

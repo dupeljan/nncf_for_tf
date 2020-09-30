@@ -23,15 +23,15 @@ class TransformationPriority(OrderedEnum):
 
 class TransformationType(OrderedEnum):
     INSERT = 0
-    REMOVE = 1
+    MULTI_INSERT = 1
+    REMOVE = 2
 
 
 class TargetType(OrderedEnum):
-    BEFORE_LAYER = 0
-    AFTER_LAYER = 1
-    WEIGHT_OPERATION = 2
-    PRE_OPERATION = 3
-    POST_OPERATION = 4
+    LAYER = 0
+    BEFORE_LAYER = 1
+    AFTER_LAYER = 2
+    WEIGHT_OPERATION = 3
 
 
 class TargetPoint:
@@ -88,6 +88,11 @@ class TransformationCommand:
     def target_point(self):
         return self._target_point
 
+    def check_command_compatibility(self, command):
+        return self.__class__ == command.__class__ and \
+               self.type == command.type and \
+               self.target_point == command.target_point
+
     def union(self, other):
         pass
 
@@ -95,7 +100,7 @@ class TransformationCommand:
         return self.union(other)
 
 
-class InsertionPoint(TargetPoint):
+class LayerPoint(TargetPoint):
     def __init__(self, target_type, layer_name):
         super().__init__(target_type)
         self._layer_name = layer_name
@@ -113,15 +118,25 @@ class InsertionPoint(TargetPoint):
         return str(self.type) + " " + self.layer_name
 
 
-class InsertionWeightsPoint(TargetPoint):
-    def __init__(self, layer_name, weights_attr_name):
-        super().__init__(TargetType.WEIGHT_OPERATION)
-        self._layer_name = layer_name
-        self._weights_attr_name = weights_attr_name
+class Layer(LayerPoint):
+    def __init__(self, layer_name):
+        super().__init__(TargetType.LAYER, layer_name)
 
-    @property
-    def layer_name(self):
-        return self._layer_name
+
+class BeforeLayer(LayerPoint):
+    def __init__(self, layer_name):
+        super().__init__(TargetType.BEFORE_LAYER, layer_name)
+
+
+class AfterLayer(LayerPoint):
+    def __init__(self, layer_name):
+        super().__init__(TargetType.AFTER_LAYER, layer_name)
+
+
+class LayerWeight(LayerPoint):
+    def __init__(self, layer_name, weights_attr_name):
+        super().__init__(TargetType.WEIGHT_OPERATION, layer_name)
+        self._weights_attr_name = weights_attr_name
 
     @property
     def weights_attr_name(self):
@@ -135,15 +150,43 @@ class InsertionWeightsPoint(TargetPoint):
         return False
 
     def __str__(self):
-        return str(self.type) + " " + self.layer_name + " " + self.weights_attr_name
+        return " ".join([
+            str(self.type),
+            self.layer_name,
+            self.weights_attr_name
+        ])
+
+
+class LayerWeightOperation(LayerWeight):
+    def __init__(self, layer_name, weights_attr_name, operation_name):
+        super().__init__(layer_name, weights_attr_name)
+        self._operation_name = operation_name
+
+    @property
+    def operation_name(self):
+        return self._operation_name
+
+    def __eq__(self, other):
+        if self.__class__ is other.__class__:
+            return self.type == other.type and \
+                   self.layer_name == other.layer_name and \
+                   self.weights_attr_name == other.weights_attr_name and \
+                   self.operation_name == other.operation_name
+        return False
+
+    def __str__(self):
+        return " ".join([
+            str(self.type),
+            self.layer_name,
+            self.weights_attr_name,
+            self.operation_name
+        ])
 
 
 class InsertionCommand(TransformationCommand):
     def __init__(self, target_point, callable_object=None, priority=None):
-        super().__init__(TransformationType.INSERT,
-                                               target_point)
+        super().__init__(TransformationType.INSERT, target_point)
         self.callable_objects = []
-
         if callable_object is not None:
             _priority = TransformationPriority.DEFAULT_PRIORITY \
                 if priority is None else priority
@@ -154,9 +197,7 @@ class InsertionCommand(TransformationCommand):
         return [x for x, _ in self.callable_objects]
 
     def union(self, other):
-        if self.__class__ != other.__class__ or\
-                self.type != other.type or\
-                self.target_point != other.target_point:
+        if not self.check_command_compatibility(other):
             raise ValueError('{} and {} commands could not be united'.format(
                 type(self).__name__, type(other).__name__))
 
@@ -164,3 +205,73 @@ class InsertionCommand(TransformationCommand):
         com.callable_objects = self.callable_objects + other.callable_objects
         com.callable_objects = sorted(com.callable_objects, key=lambda x: x[1])
         return com
+
+
+class RemovalCommand(TransformationCommand):
+    def __init__(self, target_point):
+        super().__init__(TransformationType.REMOVE, target_point)
+
+
+class MultipleInsertionCommands(TransformationCommand):
+    def __init__(self, target_point, check_target_point_fn=None, commands=None):
+        super().__init__(TransformationType.MULTI_INSERT, target_point)
+        self.check_target_point_fn = self.check_target_point \
+            if check_target_point_fn is None else check_target_point_fn
+        self._commands = []
+        for cmd in commands:
+            self.add_insertion_command(cmd)
+
+    @property
+    def commands(self):
+        return self._commands
+
+    def check_insertion_command(self, command):
+        if isinstance(command, TransformationCommand) and \
+                command.type == TransformationType.INSERT and \
+                self.check_target_point_fn(self.target_point, command.target_point):
+            return True
+        return False
+
+    def add_insertion_command(self, command):
+        if not self.check_insertion_command(command):
+            raise ValueError('{} command could not be added'.format(
+                type(command).__name__))
+
+        def find_command(target_point):
+            for idx, cmd in enumerate(self.commands):
+                if cmd.target_point == target_point:
+                    return idx
+            return None
+
+        idx = find_command(command.target_point)
+        if idx is None:
+            self.commands.append(command)
+        else:
+            self.commands[idx] = self.commands[idx] + command
+
+    def union(self, other):
+        if not self.check_command_compatibility(other):
+            raise ValueError('{} and {} commands could not be united'.format(
+                type(self).__name__, type(other).__name__))
+
+        def make_check_target_point_fn(fn1, fn2):
+            def check_target_point(tp0, tp1):
+                return fn1(tp0, tp1) and fn2(tp0, tp1)
+            return check_target_point
+
+        check_target_point_fn = self.check_target_point_fn \
+            if self.check_target_point_fn == other.check_target_point_fn else \
+            make_check_target_point_fn(self.check_target_point_fn, other.check_target_point_fn)
+
+        multi_cmd = MultipleInsertionCommands(
+            self.target_point,
+            check_target_point_fn,
+            self.commands
+        )
+        for cmd in other.commands:
+            multi_cmd.add_insertion_command(cmd)
+        return multi_cmd
+
+    @staticmethod
+    def check_target_point(tp0, tp1):
+        return tp0 == tp1

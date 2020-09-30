@@ -11,7 +11,21 @@
  limitations under the License.
 """
 
-from ..algorithm_selector import create_compression_algorithm_builder
+from ..api.composite_compression import CompositeCompressionAlgorithmBuilder
+from ..algorithm_selector import get_compression_algorithm_builder
+
+
+def create_compression_algorithm_builder(config):
+    compression_config = config.get('compression', {})
+
+    if isinstance(compression_config, dict):
+        return get_compression_algorithm_builder(compression_config)(compression_config)
+    if isinstance(compression_config, list):
+        composite_builder = CompositeCompressionAlgorithmBuilder()
+        for algo_config in compression_config:
+            composite_builder.add(get_compression_algorithm_builder(algo_config)(algo_config))
+        return composite_builder
+    return None
 
 
 def create_compressed_model(model, config):

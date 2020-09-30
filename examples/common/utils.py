@@ -67,9 +67,11 @@ def configure_paths(config):
     config.log_dir = osp.join(config.log_dir, "{}/{}".format(config.name, run_id))
     os.makedirs(config.log_dir)
 
-    compression_config = config.get('compression', None)
-    if compression_config is not None:
-        compression_config.log_dir = config.log_dir
+    compression_config = config.get('compression', [])
+    if not isinstance(compression_config, list):
+        compression_config = [compression_config, ]
+    for algo_config in compression_config:
+        algo_config.log_dir = config.log_dir
 
     if config.checkpoint_save_dir is None:
         config.checkpoint_save_dir = config.log_dir

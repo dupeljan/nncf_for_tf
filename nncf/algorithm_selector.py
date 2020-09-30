@@ -21,7 +21,7 @@ COMPRESSION_ALGORITHMS = Registry('compression algorithm')
 
 @COMPRESSION_ALGORITHMS.register('NoCompressionAlgorithm')
 class NoCompressionAlgorithmBuilder(CompressionAlgorithmBuilder):
-    def _get_transformation_layout(self, _):
+    def get_transformation_layout(self, _):
         return TransformationLayout()
 
 
@@ -29,16 +29,7 @@ class NoCompressionAlgorithmController(CompressionAlgorithmController):
     pass
 
 
-def get_compression_algorithm(config):
+def get_compression_algorithm_builder(config):
     algorithm_key = config.get('algorithm', 'NoCompressionAlgorithm')
     logger.info('Creating compression algorithm: {}'.format(algorithm_key))
     return COMPRESSION_ALGORITHMS.get(algorithm_key)
-
-
-def create_compression_algorithm_builder(config):
-    compression_config = config.get('compression', {})
-
-    if isinstance(compression_config, dict):
-        return get_compression_algorithm(compression_config)(compression_config)
-
-    return None
