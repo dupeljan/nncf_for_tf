@@ -48,8 +48,8 @@ class DatasetBuilder:
         self._deterministic_train = False
         self._use_slack = True
 
-        self._mean_subtract = True
-        self._standardize = True
+        self._mean_subtract = False
+        self._standardize = False
 
         augmenter_config = self.config.get('augmenter', None)
         if augmenter_config is not None:
@@ -216,6 +216,8 @@ class DatasetBuilder:
             image = preprocess_for_eval(
                 image,
                 image_size=self._image_size,
+                mean_subtract=self._mean_subtract,
+                standardize=self._standardize,
                 num_channels=self._num_channels,
                 dtype=self.dtype,
                 preprocess_fn=preprocess_fn

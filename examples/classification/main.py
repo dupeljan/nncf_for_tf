@@ -29,6 +29,7 @@ from examples.common.callbacks import get_callbacks
 from nncf import create_compressed_model
 from nncf.configs.config import Config
 from nncf import create_compression_callbacks
+import tensorflow_hub as hub
 
 
 def get_argument_parser():
@@ -89,6 +90,12 @@ def get_metrics(one_hot=True):
     ]
 
 
+def get_loss(one_hot=True):
+    if one_hot:
+        return tf.keras.losses.CategoricalCrossentropy(label_smoothing=0.1)
+    return tf.keras.losses.SparseCategoricalCrossentropy()
+
+
 def load_checkpoint(model, ckpt_path):
     logger.info('Load from checkpoint is enabled.')
     if tf.io.gfile.isdir(ckpt_path):
@@ -121,8 +128,8 @@ def train_test_export(config):
     strategy = get_distribution_strategy(config)
     strategy_scope = get_strategy_scope(strategy)
 
-    model, model_params = get_model(config.model,
-                                    pretrained=config.get('pretrained', True))
+    # model, model_params = get_model(config.model,
+    #                                 pretrained=config.get('pretrained', True))
 
     builders = get_dataset_builders(config, strategy)
     datasets = [builder.build() for builder in builders]
@@ -133,6 +140,12 @@ def train_test_export(config):
     train_epochs = config.epochs
     train_steps = train_builder.num_steps
     validation_steps = validation_builder.num_steps
+
+    model = tf.keras.Sequential(
+        hub.KerasLayer("https://tfhub.dev/google/imagenet/mobilenet_v2_100_224/classification/4", #'https://tfhub.dev/google/imagenet/inception_v3/classification/4',
+                       trainable=True, arguments=dict(batch_norm_momentum=0.997)))
+    model.add(tf.keras.layers.Activation('softmax'))
+    model.build([None, 224, 224, 3])
 
     with strategy_scope:
         model = model(**model_params)
@@ -150,7 +163,7 @@ def train_test_export(config):
             scheduler=scheduler)
 
         metrics = get_metrics()
-        loss_obj = tf.keras.losses.CategoricalCrossentropy(label_smoothing=0.1)
+        loss_obj = get_loss()
 
         compress_model.compile(optimizer=optimizer,
                                loss=loss_obj,
@@ -210,9 +223,14 @@ def train_test_export(config):
 
 
 def export(config):
-    model, model_params = get_model(config.model,
-                                    pretrained=config.get('pretrained', True))
-    model = model(**model_params)
+    # model, model_params = get_model(config.model,
+    #                                 pretrained=config.get('pretrained', True))
+    # model = model(**model_params)
+    model = tf.keras.Sequential(
+        hub.KerasLayer("https://tfhub.dev/google/imagenet/mobilenet_v2_100_224/classification/4",
+                       trainable=True))
+    model.build([None, 224, 224, 3])
+
     compression_ctrl, compress_model = create_compressed_model(model, config)
 
     metrics = get_metrics()

@@ -20,6 +20,10 @@ from ...layers.custom_objects import NNCF_CUSTOM_OBJECTS
 
 @NNCF_CUSTOM_OBJECTS.register()
 class BinaryMask(NNCFOperation):
+    def __init__(self):
+        super().__init__()
+        self.bkup_var = None
+
     def build(self, input_shape, input_type, name, layer):
         if input_type is not InputType.WEIGHTS:
             raise ValueError(
@@ -32,7 +36,30 @@ class BinaryMask(NNCFOperation):
             initializer=tf.keras.initializers.Constant(1.0),
             trainable=False,
             aggregation=tf.VariableAggregation.MEAN)
+
+        if not hasattr(layer.layer, name):
+            self.bkup_var = self.create_bkup_weights(layer, name)
         return mask
 
     def call(self, inputs, weights, _):
+        if self.bkup_var:
+            self.bkup_var.assign(tf.where(weights > 0.5, inputs, self.bkup_var))
+            inputs = self.bkup_var
         return apply_mask(inputs, weights)
+
+    def create_bkup_weights(self, layer, name):
+        var = None
+        for w in layer.layer.weights:
+            if w.name.split(":")[0] == name:
+                var = w
+        if not var:
+            return var
+
+        bkup_var = layer.add_weight(
+            name + '_bkup',
+            shape=var.shape,
+            trainable=False,
+            aggregation=tf.VariableAggregation.MEAN)
+
+        bkup_var.assign(var.read_value())
+        return bkup_var

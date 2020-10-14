@@ -12,6 +12,8 @@
 """
 
 import networkx as nx
+import tensorflow as tf
+from tensorflow.python.framework.convert_to_constants import convert_variables_to_constants_v2
 
 from .utils import is_functional_model, is_sequential_model
 
@@ -56,3 +58,37 @@ def _get_layer_type(layer):
     if layer['class_name'] == 'TensorFlowOpLayer':
         return layer['config']['node_def']['op']
     return layer['class_name']
+
+
+def convert_keras_model_graph_to_nxmodel(model, use_graph_var_names=False):
+    @tf.function
+    def g(x):
+        return model(x)
+
+    def get_graph_to_layer_var_names_map(concrete_fun):
+        names_map = {}
+        for layer_var in concrete_fun.variables:
+            for value_tensor, graph_name in concrete_fun.graph.captures:
+                if layer_var.handle is value_tensor:
+                    names_map[graph_name.name.split(':')[0]] = layer_var.name.split(':')[0]
+        return names_map
+
+    concr_fn = g.get_concrete_function(tf.TensorSpec(model.input_shape))
+    wrapped_function = convert_variables_to_constants_v2(concr_fn, lower_control_flow=False)
+
+    nodes = wrapped_function.graph.as_graph_def().node
+    graph_to_layer_names_map = {} if use_graph_var_names else get_graph_to_layer_var_names_map(concr_fn)
+
+    nxmodel = nx.DiGraph()
+    for node in nodes:
+        nxmodel.add_node(graph_to_layer_names_map.get(node.name, node.name),
+                         type=node.op, dtype=node.attr['dtype'])
+
+    for node in nodes:
+        for input_node in node.input:
+            node_name = graph_to_layer_names_map.get(node.name, node.name)
+            input_node_name = graph_to_layer_names_map.get(input_node, input_node)
+            if input_node_name in nxmodel.nodes:
+                nxmodel.add_edge(input_node_name, node_name)
+
+    return nxmodel

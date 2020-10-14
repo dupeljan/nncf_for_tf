@@ -23,7 +23,7 @@ __all__ = ['imagenet2012']
 # ImageNet2012 specifications
 NUM_EXAMPLES_TRAIN = 1281167
 NUM_EXAMPLES_EVAL = 50000
-NUM_CLASSES = 1000
+NUM_CLASSES = 1001
 
 
 def imagenet2012(config, is_train):
@@ -59,7 +59,7 @@ def parse_record(record: tf.Tensor):
     label = tf.cast(label, tf.int32)
 
     # Subtract one so that labels are in [0, 1000)
-    label -= 1
+    # label -= 1
 
     image = tf.reshape(parsed['image/encoded'], shape=[])
 

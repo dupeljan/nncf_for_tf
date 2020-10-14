@@ -18,7 +18,7 @@ from .operation import BinaryMask
 from ..schedulers import SPARSITY_SCHEDULERS
 from ...algorithm_selector import COMPRESSION_ALGORITHMS
 from ...api.compression import CompressionAlgorithmController, CompressionAlgorithmBuilder
-from ...graph.converter import convert_keras_model_to_nxmodel
+from ...graph.converter import convert_keras_model_graph_to_nxmodel
 from ...graph.transformations.commands import InsertionCommand, RemovalCommand, LayerWeight,\
     LayerWeightOperation, TransformationPriority
 from ...graph.transformations.layout import TransformationLayout
@@ -47,21 +47,40 @@ PRUNING_LAYERS = {
 class MagnitudeSparsityBuilder(CompressionAlgorithmBuilder):
 
     def get_transformation_layout(self, model):
-        nxmodel = convert_keras_model_to_nxmodel(model)
+        nxmodel = convert_keras_model_graph_to_nxmodel(model)
         transformations = TransformationLayout()
+        nodes_to_affect = [node_name for node_name, node in nxmodel.nodes.items()
+                           if node['type'] in PRUNING_LAYERS]
 
-        for node_name, node in nxmodel.nodes.items():
-            if node['type'] not in PRUNING_LAYERS:
-                continue
+        def get_layer_to_nodes_map(model_, nodes):
+            map = {layer.name: {'type': layer.__class__.__name__,
+                                'nodes': []}
+                   for layer in model_.layers}
+            for node in nodes:
+                layer_name_of_node = node.split('/')[1]  # model_name/layer_name/layer_op_name/...
+                if layer_name_of_node not in map:
+                    raise RuntimeError('Could not find {} layer in Model'.format(layer_name_of_node))
+                map[layer_name_of_node]['nodes'].append(node)
+            return map
 
-            weight_attr_name = PRUNING_LAYERS[node['type']]['weight_attr_name']
-            operation = BinaryMask()
-            transformations.register(
-                InsertionCommand(
-                    target_point=LayerWeight(node_name, weight_attr_name),
-                    callable_object=operation,
-                    priority=TransformationPriority.SPARSIFICATION_PRIORITY
-                ))
+        def traverse(graph_, node_name):
+            while list(graph_.predecessors(node_name)):
+                node_name = list(graph_.predecessors(node_name))[-1]
+            return node_name
+
+        layer_to_nodes_map = get_layer_to_nodes_map(model, nodes_to_affect)
+        for layer, layer_conf in layer_to_nodes_map.items():
+            for node in layer_conf['nodes']:
+                weight_attr_name = \
+                    PRUNING_LAYERS[layer_conf['type']]['weight_attr_name']\
+                        if layer_conf['type'] in PRUNING_LAYERS \
+                        else traverse(nxmodel, node)
+                operation = BinaryMask()
+                transformations.register(
+                    InsertionCommand(
+                        target_point=LayerWeight(layer, weight_attr_name),
+                        callable_object=operation,
+                        priority=TransformationPriority.SPARSIFICATION_PRIORITY))
 
         return transformations
 

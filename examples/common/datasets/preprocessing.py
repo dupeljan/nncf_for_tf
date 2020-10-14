@@ -298,65 +298,16 @@ def preprocess_for_eval(
     Returns:
       A preprocessed and normalized image `Tensor`.
     """
-    images = decode_and_center_crop(image_bytes, image_size)
-    images = tf.reshape(images, [image_size, image_size, num_channels])
+    image = tf.image.decode_jpeg(image_bytes, channels=num_channels)
 
-    if preprocess_fn:
-        return preprocess_fn(images)
+    image = tf.image.central_crop(image, central_fraction=0.875)
+    image = tf.compat.v1.image.resize(
+        image, [image_size, image_size], method=tf.image.ResizeMethod.BILINEAR,
+        align_corners=False)
+    image.set_shape([image_size, image_size, num_channels])
+    image = image/255
 
-    if mean_subtract:
-        images = mean_image_subtraction(image_bytes=images, means=MEAN_RGB)
-    if standardize:
-        images = standardize_image(image_bytes=images, stddev=STDDEV_RGB)
-    if dtype is not None:
-        images = tf.image.convert_image_dtype(images, dtype=dtype)
-
-    return images
-
-
-def load_eval_image(filename: Text, image_size: int = IMAGE_SIZE) -> tf.Tensor:
-    """Reads an image from the filesystem and applies image preprocessing.
-
-    Args:
-      filename: a filename path of an image.
-      image_size: image height/width dimension.
-
-    Returns:
-      A preprocessed and normalized image `Tensor`.
-    """
-    image_bytes = tf.io.read_file(filename)
-    image = preprocess_for_eval(image_bytes, image_size)
-
-    return image
-
-
-def build_eval_dataset(filenames: List[Text],
-                       labels: List[int] = None,
-                       image_size: int = IMAGE_SIZE,
-                       batch_size: int = 1) -> tf.Tensor:
-    """Builds a tf.data.Dataset from a list of filenames and labels.
-
-    Args:
-      filenames: a list of filename paths of images.
-      labels: a list of labels corresponding to each image.
-      image_size: image height/width dimension.
-      batch_size: the batch size used by the dataset
-
-    Returns:
-      A preprocessed and normalized image `Tensor`.
-    """
-    if labels is None:
-        labels = [0] * len(filenames)
-
-    filenames = tf.constant(filenames)
-    labels = tf.constant(labels)
-    dataset = tf.data.Dataset.from_tensor_slices((filenames, labels))
-
-    dataset = dataset.map(
-        lambda filename, label: (load_eval_image(filename, image_size), label))
-    dataset = dataset.batch(batch_size)
-
-    return dataset
+    return tf.image.convert_image_dtype(image, dtype=tf.float32)
 
 
 def preprocess_for_train(image_bytes: tf.Tensor,
@@ -382,20 +333,16 @@ def preprocess_for_train(image_bytes: tf.Tensor,
     Returns:
       A preprocessed and normalized image `Tensor`.
     """
-    images = decode_crop_and_flip(image_bytes=image_bytes)
-    images = resize_image(images, height=image_size, width=image_size)
-    if preprocess_fn:
-        return preprocess_fn(images)
-    if mean_subtract:
-        images = mean_image_subtraction(image_bytes=images, means=MEAN_RGB)
-    if standardize:
-        images = standardize_image(image_bytes=images, stddev=STDDEV_RGB)
-    if augmenter is not None:
-        images = augmenter.distort(images)
-    if dtype is not None:
-        images = tf.image.convert_image_dtype(images, dtype)
+    image = tf.image.decode_jpeg(image_bytes, channels=3)
+    image = tf.image.central_crop(image, central_fraction=0.875)
+    image = tf.image.random_flip_left_right(image)
+    image = tf.compat.v1.image.resize(
+        image, [image_size, image_size], method=tf.image.ResizeMethod.BILINEAR,
+        align_corners=False)
+    image.set_shape([image_size, image_size, 3])
+    image = image / 255
 
-    return images
+    return tf.image.convert_image_dtype(image, dtype=tf.float32)
 
 
 def get_preprocess_fn(model_name, dataset_name):

@@ -11,6 +11,9 @@
  limitations under the License.
 """
 
+import sys
+import inspect
+
 import tensorflow as tf
 
 from nncf.layers.wrapper import NNCFWrapper
@@ -30,12 +33,22 @@ def is_functional_model(model):
            and getattr(model, '_is_graph_network', False)
 
 
-def get_custom_objects(_):
-    return {}
+def get_custom_objects(model):
+    # TODO: doesn't work when layer is wrapped by NNCFWrapper
+    keras_layers = [class_name for class_name, _ in
+                    inspect.getmembers(sys.modules[tf.keras.layers.__name__], inspect.isclass)]
+    custom_objects = {}
+    for layer in model.layers:
+        if layer.__class__.__name__ not in keras_layers:
+            custom_objects[layer.__class__.__name__] = layer.__class__
+    custom_objects[model.get_layer('keras_layer').__class__.__name__] = model.get_layer('keras_layer').__class__
+    return custom_objects
 
 
-def get_weight_name(name):
-    return name.split('/')[-1]
+def get_weight_name(name, layer_name=None):
+    if layer_name and layer_name in name:
+        return name.split(layer_name + '/')[-1]
+    return name
 
 
 def collect_wrapped_layers(model):

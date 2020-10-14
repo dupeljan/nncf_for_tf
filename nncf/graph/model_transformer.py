@@ -58,6 +58,10 @@ class ModelTransformer:
 
         for transform in self._transformations:
             self._apply_transformation(transform)
+        # if self._transformations:
+        #     self._insert_weights_operations('keras_layer',
+        #                                     [com.target_point.weights_attr_name for com in self._transformations],
+        #                                     [com.insertion_objects for com in self._transformations])
 
         if is_functional_model(self._model):
             transformed_model = tf.keras.Model.from_config(self._model_config, self._custom_objects)
@@ -76,14 +80,14 @@ class ModelTransformer:
         weights_map = OrderedDict()
         for weight_tensor, weight_numpy in \
                 zip(layer.weights, layer.get_weights()):
-            weights_map[get_weight_name(weight_tensor.name)] = weight_numpy
+            weights_map[get_weight_name(weight_tensor.name, layer.name)] = weight_numpy
 
         return weights_map
 
     def _set_layer_weights(self, layer, weights_map):
         weight_value_tuples = []
         for weight_tensor in layer.weights:
-            weight_name = get_weight_name(weight_tensor.name)
+            weight_name = get_weight_name(weight_tensor.name, layer.name)
             if weight_name in weights_map:
                 weight_value_tuples.append(
                     (weight_tensor, weights_map[weight_name]))
@@ -104,7 +108,7 @@ class ModelTransformer:
 
     def _find_layer_config(self, layer_name):
         for idx, layer in enumerate(self._model_config['layers']):
-            if layer['name'] == layer_name:
+            if layer.get('config', layer)['name'] == layer_name:
                 return idx, layer
         return None, None
 
@@ -154,10 +158,10 @@ class ModelTransformer:
         weight_operations = []
         for cmd in commands:
             if cmd.type != TransformationType.INSERT or \
-                    cmd.target_point != TargetType.WEIGHT_OPERATION:
+                    cmd.target_point.type != TargetType.WEIGHT_OPERATION:
                 raise TypeError('Multiple insertion transform does not support command: '
                                 'command type - {}; target point type - {}'
-                                .format(cmd.type, cmd.target_point))
+                                .format(cmd.type, cmd.target_point.type))
             weight_operations.append(
                 WeightOperations(
                     cmd.target_point.weights_attr_name,
@@ -221,6 +225,16 @@ class ModelTransformer:
             self._replace_sequential(layer_name, replace_layer_config)
 
         self._update_layer_mapping(layer_name, replace_layer_config['name'])
+
+    def _insert_weights_operations(self, layer_name, weights_attr_names, operations):
+        layer = self._get_layer(layer_name)
+        wrapper = NNCFWrapper(layer)
+
+        for weight_name, weight_ops in zip(weights_attr_names, operations):
+            for op in weight_ops:
+                wrapper.registry_weight_operation(weight_name, op)
+
+        self._replace(layer_name, wrapper)
 
     def _replace_functional(self, layer_name, replace_layer_config):
         replace_layer_name = replace_layer_config['name']

@@ -151,11 +151,19 @@ class NNCFWrapper(tf.keras.layers.Wrapper):
         return self._ops_weights[operation_name]
 
     def _get_layer_weight(self, weight_attr):
-        return getattr(self.layer, weight_attr, None)
+        weight = getattr(self.layer, weight_attr, None)
+        if weight:
+            return weight
+        for w in self.layer.weights:
+            if w.name.split(":")[0] == weight_attr:
+                return w
 
     #TODO _set_layer_weight is more pretty name
     def set_weight(self, weight_attr, weights):
-        return setattr(self.layer, weight_attr, weights)
+        if hasattr(self.layer, weight_attr):
+            setattr(self.layer, weight_attr, weights)
+        else:
+            self._layer_weights[weight_attr].assign(weights)
 
     def _init_layer_call_fn_args(self):
         call_full_argspec = getfullargspec(self.layer.call)
