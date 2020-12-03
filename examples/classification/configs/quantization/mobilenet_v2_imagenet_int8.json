@@ -5,7 +5,7 @@
         "sample_size": [1, 224, 224, 3]
     },
 
-    "batch_size": 256,
+    "batch_size": 16,
     "epochs": 15,
     "distributed": true,
 
@@ -19,9 +19,5 @@
     },
 
     "dataset": "imagenet2012",
-    "dataset_type": "tfds",
-
-    "compression": {
-        "algorithm": "quantization"
-    }
+    "dataset_type": "tfrecords"
 }

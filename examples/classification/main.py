@@ -141,14 +141,59 @@ def train_test_export(config):
     train_steps = train_builder.num_steps
     validation_steps = validation_builder.num_steps
 
-    model = tf.keras.Sequential(
-        hub.KerasLayer("https://tfhub.dev/google/imagenet/mobilenet_v2_100_224/classification/4", #'https://tfhub.dev/google/imagenet/inception_v3/classification/4',
-                       trainable=True, arguments=dict(batch_norm_momentum=0.997)))
-    model.add(tf.keras.layers.Activation('softmax'))
-    model.build([None, 224, 224, 3])
+    # class ResNetBlock(tf.keras.layers.Layer):
+    #     def __init__(self):
+    #         super(ResNetBlock, self).__init__()
+    #         self.block_1 = tf.keras.layers.Conv2D(2, 3)
+    #         self.block_2 = tf.keras.layers.Conv2D(2, 3)
+    #
+    #     def call(self, inputs):
+    #         x = self.block_1(inputs)
+    #         return self.block_2(x)
+    #
+    # class ResNet(tf.keras.Model):
+    #     def __init__(self):
+    #         super(ResNet, self).__init__()
+    #         self.block_1 = ResNetBlock()
+    #         self.global_pool = tf.keras.layers.GlobalAveragePooling2D()
+    #         self.classifier = tf.keras.layers.Dense(100)
+    #
+    #     def call(self, inputs):
+    #         x = self.block_1(inputs)
+    #         x = self.global_pool(x)
+    #         return self.classifier(x)
+    #
+    # m = ResNet()
+    #
+    #input = tf.random.uniform((1, 28, 28, 3))
+    # output = m(input)
+    #
+    # m.save("/home/alexsu/work/tmp/", save_format='tf')
 
     with strategy_scope:
-        model = model(**model_params)
+        from op_insertion import NNCFWrapperCustom
+        model = tf.keras.Sequential([
+            tf.keras.layers.Input(shape=(224, 224, 3)),
+            NNCFWrapperCustom(
+                hub.KerasLayer("https://tfhub.dev/google/imagenet/mobilenet_v2_100_224/classification/4", #'https://tfhub.dev/google/imagenet/inception_v3/classification/4',
+                   trainable=True, arguments=dict(batch_norm_momentum=0.997)),
+            ),
+            tf.keras.layers.Activation('softmax')
+        ])
+
+        #model.save("/home/alexsu/work/tmp/", save_format='tf')
+
+        #input = tf.random.uniform((1, 224, 224, 3))
+        #output = model(input)
+        #model.build([None, 224, 224, 3])
+
+    #with strategy_scope:
+        #    model = model(**model_params)
+
+        # model = tf.keras.Sequential([
+        #     tf.keras.layers.Input(shape=(224, 224, 3)),
+        #     hub.KerasLayer("/home/alexsu/work/tmp/")
+        # ])
 
         compression_ctrl, compress_model = create_compressed_model(model, config)
         compression_callbacks = create_compression_callbacks(compression_ctrl, config.log_dir)
@@ -204,8 +249,8 @@ def train_test_export(config):
         logger.info('training...')
         compress_model.fit(
             train_dataset,
-            epochs=train_epochs,
-            steps_per_epoch=train_steps,
+            epochs=1,#train_epochs,
+            steps_per_epoch=30,#train_steps,
             initial_epoch=initial_epoch,
             callbacks=callbacks,
             **validation_kwargs)

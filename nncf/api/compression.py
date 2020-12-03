@@ -222,8 +222,9 @@ class CompressionAlgorithmBuilder:
              Model with additional modifications necessary to enable algorithm-specific
              compression during fine-tuning.
         """
-        transformation_layout = self.get_transformation_layout(model)
-        return ModelTransformer(model, transformation_layout).transform()
+        #transformation_layout = self.get_transformation_layout(model)
+        #return ModelTransformer(model, transformation_layout).transform()
+        return model
 
     def build_controller(self, model):
         """
