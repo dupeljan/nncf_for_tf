@@ -80,59 +80,97 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
         #                         self.concr_eval_fn.outputs)
 
         print('built')
+        concr_train_fn = tf.function(self.layer.call).get_concrete_function(
+                   tf.TensorSpec(shape=input_shape, dtype=tf.float32), training=True)
+        self.fn_train = make_new_func(concr_train_fn.graph.as_graph_def(),
+                                         concr_train_fn.graph.captures,
+                                         concr_train_fn.graph.variables,
+                                         concr_train_fn.inputs,
+                                         concr_train_fn.outputs)
 
         #self._concrete_functions[name] = _WrapperFunction(concrete_function)
 
+    REBUILD_CONCREETE = True
     @tf.function
     def call(self, inputs, training=None):
         if tf.distribute.has_strategy():
-            if tf.distribute.in_cross_replica_context():
-                if training:
-                    from tensorflow.python.distribute import distribution_strategy_context
-                    with distribution_strategy_context._get_default_replica_context():
-                        # fn_train = make_new_func(self.concr_train_fn.graph.as_graph_def(),
-                        #                          self.concr_train_fn.graph.captures,
-                        #                          self.concr_train_fn.graph.variables,
-                        #                          self.concr_train_fn.inputs,
-                        #                          self.concr_train_fn.outputs)
-                        fn_train = tf.function(self.layer.call).get_concrete_function(
-                           tf.TensorSpec(shape=inputs.shape, dtype=tf.float32), training=True)
-                        return fn_train(inputs)
-                else:
-                    from tensorflow.python.distribute import distribution_strategy_context
-                    with distribution_strategy_context._get_default_replica_context():
-                        fn_eval = tf.function(self.layer.call).get_concrete_function(
-                           tf.TensorSpec(shape=inputs.shape, dtype=tf.float32), training=False)
-                        # fn_eval = make_new_func(self.concr_eval_fn.graph.as_graph_def(),
-                        #               self.concr_eval_fn.graph.captures,
-                        #               self.concr_eval_fn.graph.variables,
-                        #               self.concr_eval_fn.inputs,
-                        #               self.concr_eval_fn.outputs)
-                        return fn_eval(inputs)
+            if not self.REBUILD_CONCREETE:
+                fn_train = tf.function(self.layer.call).get_concrete_function(
+                    tf.TensorSpec(shape=inputs.shape, dtype=tf.float32), training=True)
+                return fn_train(inputs)
             else:
-                if training:
-                    from tensorflow.python.distribute import distribution_strategy_context
-                    with distribution_strategy_context.get_replica_context():
-                        fn_train = tf.function(self.layer.call).get_concrete_function(
-                           tf.TensorSpec(shape=inputs.shape, dtype=tf.float32), training=True)
-                        # fn_train = make_new_func(self.concr_train_fn.graph.as_graph_def(),
-                        #                          self.concr_train_fn.graph.captures,
-                        #                          self.concr_train_fn.graph.variables,
-                        #                          self.concr_train_fn.inputs,
-                        #                          self.concr_train_fn.outputs)
-                        return fn_train(inputs)
-                else:
-                    from tensorflow.python.distribute import distribution_strategy_context
-                    with distribution_strategy_context.get_replica_context():
-                        fn_eval = tf.function(self.layer.call).get_concrete_function(
-                           tf.TensorSpec(shape=inputs.shape, dtype=tf.float32), training=False)
-                        # fn_eval = make_new_func(self.concr_eval_fn.graph.as_graph_def(),
-                        #                         self.concr_eval_fn.graph.captures,
-                        #                         self.concr_eval_fn.graph.variables,
-                        #                         self.concr_eval_fn.inputs,
-                        #                         self.concr_eval_fn.outputs)
-                        return fn_eval(inputs)
+                #concr_train_fn = tf.function(self.layer.call).get_concrete_function(
+                #   tf.TensorSpec(shape=inputs.shape, dtype=tf.float32), training=True)
+                #fn_train = make_new_func(concr_train_fn.graph.as_graph_def(),
+                #                         concr_train_fn.graph.captures,
+                #                         concr_train_fn.graph.variables,
+                #                         concr_train_fn.inputs,
+                #                         concr_train_fn.outputs)
+                #tf.print('\nTrace function\n')
+                #return fn_train(inputs)
+                return self.fn_train(inputs)
+
+            if tf.distribute.in_cross_replica_context():
+
+                from tensorflow.python.distribute import distribution_strategy_context
+                with distribution_strategy_context._get_default_replica_context():
+                    fn_train = tf.function(self.layer.call).get_concrete_function(
+                       tf.TensorSpec(shape=inputs.shape, dtype=tf.float32))
+                    return fn_train(inputs)
+                #if training:
+                #    from tensorflow.python.distribute import distribution_strategy_context
+                #    with distribution_strategy_context._get_default_replica_context():
+                #        # fn_train = make_new_func(self.concr_train_fn.graph.as_graph_def(),
+                #        #                          self.concr_train_fn.graph.captures,
+                #        #                          self.concr_train_fn.graph.variables,
+                #        #                          self.concr_train_fn.inputs,
+                #        #                          self.concr_train_fn.outputs)
+                #        fn_train = tf.function(self.layer.call).get_concrete_function(
+                #           tf.TensorSpec(shape=inputs.shape, dtype=tf.float32), training=True)
+                #        return fn_train(inputs)
+                #else:
+                #    from tensorflow.python.distribute import distribution_strategy_context
+                #    with distribution_strategy_context._get_default_replica_context():
+                #        fn_eval = tf.function(self.layer.call).get_concrete_function(
+                #           tf.TensorSpec(shape=inputs.shape, dtype=tf.float32), training=False)
+                #        # fn_eval = make_new_func(self.concr_eval_fn.graph.as_graph_def(),
+                #        #               self.concr_eval_fn.graph.captures,
+                #        #               self.concr_eval_fn.graph.variables,
+                #        #               self.concr_eval_fn.inputs,
+                #        #               self.concr_eval_fn.outputs)
+                #        return fn_eval(inputs)
+            else:
+                from tensorflow.python.distribute import distribution_strategy_context
+                with distribution_strategy_context.get_replica_context():
+                    fn_train = tf.function(self.layer.call).get_concrete_function(
+                       tf.TensorSpec(shape=inputs.shape, dtype=tf.float32))
+                    return fn_train(inputs)
+                #if training:
+                #    from tensorflow.python.distribute import distribution_strategy_context
+                #    with distribution_strategy_context.get_replica_context():
+                #        fn_train = tf.function(self.layer.call).get_concrete_function(
+                #           tf.TensorSpec(shape=inputs.shape, dtype=tf.float32), training=True)
+                #        # fn_train = make_new_func(self.concr_train_fn.graph.as_graph_def(),
+                #        #                          self.concr_train_fn.graph.captures,
+                #        #                          self.concr_train_fn.graph.variables,
+                #        #                          self.concr_train_fn.inputs,
+                #        #                          self.concr_train_fn.outputs)
+                #        return fn_train(inputs)
+                #else:
+                #    from tensorflow.python.distribute import distribution_strategy_context
+                #    with distribution_strategy_context.get_replica_context():
+                #        fn_eval = tf.function(self.layer.call).get_concrete_function(
+                #           tf.TensorSpec(shape=inputs.shape, dtype=tf.float32), training=False)
+                #        # fn_eval = make_new_func(self.concr_eval_fn.graph.as_graph_def(),
+                #        #                         self.concr_eval_fn.graph.captures,
+                #        #                         self.concr_eval_fn.graph.variables,
+                #        #                         self.concr_eval_fn.inputs,
+                #        #                         self.concr_eval_fn.outputs)
+                #        return fn_eval(inputs)
         else:
+            concr_train_fn = tf.function(self.layer.call).get_concrete_function(
+                tf.TensorSpec(shape=inputs.shape, dtype=tf.float32))
+            return concr_train_fn(inputs)
             if training:
               # return self.concr_train_fn(inputs)
                 concr_train_fn = tf.function(self.layer.call).get_concrete_function(
@@ -156,6 +194,7 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
 
         #return self._func(inputs, training)
 
+
 def make_new_func(output_graph_def, captures, variables, inputs, outputs):
     new_input_names = [tensor.name for tensor in inputs]
     inputs_map = {
@@ -172,6 +211,7 @@ def make_new_func(output_graph_def, captures, variables, inputs, outputs):
 
     new_func.graph.variables = variables
     return new_func
+
 
 def my_function_from_graph_def(graph_def, inputs, outputs, ref_captures):
     def _imports_graph_def():

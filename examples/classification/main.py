@@ -141,43 +141,46 @@ def train_test_export(config):
     train_steps = train_builder.num_steps
     validation_steps = validation_builder.num_steps
 
-    # class ResNetBlock(tf.keras.layers.Layer):
-    #     def __init__(self):
-    #         super(ResNetBlock, self).__init__()
-    #         self.block_1 = tf.keras.layers.Conv2D(2, 3)
-    #         self.block_2 = tf.keras.layers.Conv2D(2, 3)
-    #
-    #     def call(self, inputs):
-    #         x = self.block_1(inputs)
-    #         return self.block_2(x)
-    #
-    # class ResNet(tf.keras.Model):
-    #     def __init__(self):
-    #         super(ResNet, self).__init__()
-    #         self.block_1 = ResNetBlock()
-    #         self.global_pool = tf.keras.layers.GlobalAveragePooling2D()
-    #         self.classifier = tf.keras.layers.Dense(100)
-    #
-    #     def call(self, inputs):
-    #         x = self.block_1(inputs)
-    #         x = self.global_pool(x)
-    #         return self.classifier(x)
-    #
-    # m = ResNet()
+    class ResNetBlock(tf.keras.layers.Layer):
+        def __init__(self):
+            super(ResNetBlock, self).__init__()
+            self.block_1 = tf.keras.layers.Conv2D(2, 3)
+            self.block_2 = tf.keras.layers.Conv2D(2, 3)
+
+        def call(self, inputs, training=None):
+            x = self.block_1(inputs)
+            return self.block_2(x)
+
+    class ResNet(tf.keras.Model):
+        def __init__(self):
+            super(ResNet, self).__init__()
+            self.block_1 = ResNetBlock()
+            self.global_pool = tf.keras.layers.GlobalAveragePooling2D()
+            self.classifier = tf.keras.layers.Dense(1000)
+
+        def call(self, inputs):
+            x = self.block_1(inputs)
+            x = self.global_pool(x)
+            return self.classifier(x)
+
+    #m = ResNet()
     #
     #input = tf.random.uniform((1, 28, 28, 3))
     # output = m(input)
     #
     # m.save("/home/alexsu/work/tmp/", save_format='tf')
 
-    with strategy_scope:
+    with strategy.scope():
         from op_insertion import NNCFWrapperCustom
         model = tf.keras.Sequential([
             tf.keras.layers.Input(shape=(224, 224, 3)),
             NNCFWrapperCustom(
-                hub.KerasLayer("https://tfhub.dev/google/imagenet/mobilenet_v2_100_224/classification/4", #'https://tfhub.dev/google/imagenet/inception_v3/classification/4',
-                   trainable=True, arguments=dict(batch_norm_momentum=0.997)),
+                ResNetBlock(),
+                #hub.KerasLayer("https://tfhub.dev/google/imagenet/mobilenet_v2_100_224/classification/4", #'https://tfhub.dev/google/imagenet/inception_v3/classification/4',
+                #   trainable=True, arguments=dict(batch_norm_momentum=0.997)),
             ),
+            tf.keras.layers.Flatten(),
+            tf.keras.layers.Dense(1000),
             tf.keras.layers.Activation('softmax')
         ])
 
@@ -295,9 +298,14 @@ def export(config):
 
 
 def main(argv):
+    physical_devices = tf.config.list_physical_devices('GPU')
+    for device in physical_devices:
+        tf.config.experimental.set_memory_growth(device, True)
+
     parser = get_argument_parser()
     config = get_config_from_argv(argv, parser)
 
+    #config['eager_mode'] = True
     serialize_config(config, config.log_dir)
 
     nncf_root = Path(__file__).absolute().parents[2]
