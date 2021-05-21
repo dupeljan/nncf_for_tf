@@ -13,7 +13,7 @@
 
 import tensorflow as tf
 
-DISABLE_DISTR = True
+DISABLE_DISTR = False
 
 def get_distribution_strategy(config):
     if not DISABLE_DISTR:

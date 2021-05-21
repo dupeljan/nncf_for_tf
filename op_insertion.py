@@ -41,9 +41,10 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
         # self.step = 0
         # self.pruned_weight_name = None
 
+    CREATE_GRAPH_ON_BUILD = True
     def build(self, input_shape=None):
         from tensorflow.python.saved_model.load import _WrapperFunction
-        # from tensorflow.python.framework import ops
+        from tensorflow.python.framework import ops
         # with ops.init_scope():
         #     from tensorflow.python.saved_model.load import _WrapperFunction
         #     from tensorflow.python.distribute import distribution_strategy_context
@@ -53,11 +54,25 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
         #     self.concr_eval_fn = tf.function(self.layer.call).get_concrete_function(
         #         tf.TensorSpec(shape=input_shape, dtype=tf.float32), training=False)
         #
-        #     from tensorflow.python.eager import function as function_lib
-        #     self.train_fn = _WrapperFunction(function_lib.ConcreteFunction(
-        #         self.concr_train_fn.graph, signature=True))
-        #     self.eval_fn = _WrapperFunction(function_lib.ConcreteFunction(
-        #         self.concr_eval_fn.graph, signature=True))
+        if self.CREATE_GRAPH_ON_BUILD:
+            from tensorflow.python.distribute import distribution_strategy_context
+            from tensorflow.python.keras import backend as K
+            from tensorflow.python.keras.saving.saved_model import utils
+            with K.deprecated_internal_learning_phase_scope(0):
+                # When saving a model involving batch norm layer within a strategy scope,
+                # the replica context is not available when calling `add_update()`, and thus
+                # we use the default replica context here.
+                #with distribution_strategy_context._get_default_replica_context():  # pylint: disable=protected-access
+                with utils.keras_option_scope(True):
+                    self.concr_train_fn = tf.function(self.layer.call).get_concrete_function(
+                               tf.TensorSpec(shape=input_shape, dtype=tf.float32), training=True)
+
+                    #self.fn_train = _WrapperFunction(function_lib.ConcreteFunction(
+                    #                                     func_graph=self.concr_train_fn.graph,
+                    #                                     function_spec=self.concr_train_fn._function_spec))
+                    self.fn_train = self.concr_train_fn
+        #self.evn = _WrapperFunction(function_lib.ConcreteFunction(
+        #    self.concr_eval_fn.graph))
         #
         # def inner_call(inputs, training=None):
         #     if training:
@@ -80,18 +95,18 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
         #                         self.concr_eval_fn.outputs)
 
         print('built')
-        concr_train_fn = tf.function(self.layer.call).get_concrete_function(
-                   tf.TensorSpec(shape=input_shape, dtype=tf.float32), training=True)
-        self.fn_train = make_new_func(concr_train_fn.graph.as_graph_def(),
-                                         concr_train_fn.graph.captures,
-                                         concr_train_fn.graph.variables,
-                                         concr_train_fn.inputs,
-                                         concr_train_fn.outputs)
+        #concr_train_fn = tf.function(self.layer.call).get_concrete_function(
+        #           tf.TensorSpec(shape=input_shape, dtype=tf.float32), training=True)
+        #self.fn_train = make_new_func(concr_train_fn.graph.as_graph_def(),
+        #                                 concr_train_fn.graph.captures,
+        #                                 concr_train_fn.graph.variables,
+        #                                 concr_train_fn.inputs,
+        #                                 concr_train_fn.outputs)
 
         #self._concrete_functions[name] = _WrapperFunction(concrete_function)
 
     REBUILD_CONCREETE = True
-    @tf.function
+    #@tf.function
     def call(self, inputs, training=None):
         if tf.distribute.has_strategy():
             if not self.REBUILD_CONCREETE:
@@ -99,15 +114,16 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
                     tf.TensorSpec(shape=inputs.shape, dtype=tf.float32), training=True)
                 return fn_train(inputs)
             else:
-                #concr_train_fn = tf.function(self.layer.call).get_concrete_function(
-                #   tf.TensorSpec(shape=inputs.shape, dtype=tf.float32), training=True)
-                #fn_train = make_new_func(concr_train_fn.graph.as_graph_def(),
-                #                         concr_train_fn.graph.captures,
-                #                         concr_train_fn.graph.variables,
-                #                         concr_train_fn.inputs,
-                #                         concr_train_fn.outputs)
-                #tf.print('\nTrace function\n')
-                #return fn_train(inputs)
+                if not self.CREATE_GRAPH_ON_BUILD:
+                    concr_train_fn = tf.function(self.layer.call).get_concrete_function(
+                       tf.TensorSpec(shape=inputs.shape, dtype=tf.float32), training=True)
+                    fn_train = make_new_func(concr_train_fn.graph.as_graph_def(),
+                                             concr_train_fn.graph.captures,
+                                             concr_train_fn.graph.variables,
+                                             concr_train_fn.inputs,
+                                             concr_train_fn.outputs)
+                    tf.print('\nTrace function\n')
+                    return fn_train(inputs)
                 return self.fn_train(inputs)
 
             if tf.distribute.in_cross_replica_context():
@@ -168,9 +184,11 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
                 #        #                         self.concr_eval_fn.outputs)
                 #        return fn_eval(inputs)
         else:
-            concr_train_fn = tf.function(self.layer.call).get_concrete_function(
-                tf.TensorSpec(shape=inputs.shape, dtype=tf.float32))
-            return concr_train_fn(inputs)
+            if not self.CREATE_GRAPH_ON_BUILD:
+                concr_train_fn = tf.function(self.layer.call).get_concrete_function(
+                    tf.TensorSpec(shape=inputs.shape, dtype=tf.float32))
+                return concr_train_fn(inputs)
+            return self.fn_train(inputs)
             if training:
               # return self.concr_train_fn(inputs)
                 concr_train_fn = tf.function(self.layer.call).get_concrete_function(

@@ -32,6 +32,8 @@ from nncf import create_compression_callbacks
 import tensorflow_hub as hub
 
 
+SAVE_MODEL_WORKAROUND = True
+
 def get_argument_parser():
     parser = get_common_argument_parser()
     parser.add_argument(
@@ -170,7 +172,7 @@ def train_test_export(config):
     #
     # m.save("/home/alexsu/work/tmp/", save_format='tf')
 
-    with strategy.scope():
+    with strategy_scope:
         from op_insertion import NNCFWrapperCustom
         model = tf.keras.Sequential([
             tf.keras.layers.Input(shape=(224, 224, 3)),
@@ -184,7 +186,10 @@ def train_test_export(config):
             tf.keras.layers.Activation('softmax')
         ])
 
-        #model.save("/home/alexsu/work/tmp/", save_format='tf')
+        if SAVE_MODEL_WORKAROUND:
+            path = '/tmp/model.pb'
+            model.save(path, save_format='tf')
+            model = tf.keras.models.load_model(path)
 
         #input = tf.random.uniform((1, 224, 224, 3))
         #output = model(input)
@@ -305,7 +310,7 @@ def main(argv):
     parser = get_argument_parser()
     config = get_config_from_argv(argv, parser)
 
-    #config['eager_mode'] = True
+    config['eager_mode'] = True
     serialize_config(config, config.log_dir)
 
     nncf_root = Path(__file__).absolute().parents[2]
