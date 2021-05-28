@@ -32,7 +32,7 @@ from nncf import create_compression_callbacks
 import tensorflow_hub as hub
 
 
-SAVE_MODEL_WORKAROUND = True
+SAVE_MODEL_WORKAROUND = False
 
 def get_argument_parser():
     parser = get_common_argument_parser()
@@ -172,14 +172,25 @@ def train_test_export(config):
     #
     # m.save("/home/alexsu/work/tmp/", save_format='tf')
 
+    class DummyLayer(tf.keras.layers.Layer):
+        def build(self, input_shape):
+            self.a = self.add_weight('multiplyer', input_shape, tf.float32, tf.keras.initializers.Constant(tf.constant(2.)))
+            self.b = self.add_weight('bias', input_shape, tf.float32, tf.keras.initializers.Constant(tf.constant(1.)))
+
+        @staticmethod
+        def train_fn(inputs, a, b):
+            return a * inputs + b
+
+        def call(self, inputs, **kwargs):
+            return self.train_fn(self.a, self.b)
+
     with strategy_scope:
         from op_insertion import NNCFWrapperCustom
         model = tf.keras.Sequential([
             tf.keras.layers.Input(shape=(224, 224, 3)),
+            tf.keras.layers.Flatten(),
             NNCFWrapperCustom(
-                ResNetBlock(),
-                #hub.KerasLayer("https://tfhub.dev/google/imagenet/mobilenet_v2_100_224/classification/4", #'https://tfhub.dev/google/imagenet/inception_v3/classification/4',
-                #   trainable=True, arguments=dict(batch_norm_momentum=0.997)),
+                DummyLayer(),
             ),
             tf.keras.layers.Flatten(),
             tf.keras.layers.Dense(1000),
@@ -195,7 +206,7 @@ def train_test_export(config):
         #output = model(input)
         #model.build([None, 224, 224, 3])
 
-    #with strategy_scope:
+    #with strategy_scope:sdfas
         #    model = model(**model_params)
 
         # model = tf.keras.Sequential([
@@ -322,4 +333,7 @@ def main(argv):
 
 
 if __name__ == '__main__':
+    devices = tf.config.list_physical_devices('GPU')
+    for device in devices:
+        tf.config.experimental.set_memory_growth(device, True)
     main(sys.argv[1:])

@@ -18,6 +18,22 @@ from tensorflow.python.framework.func_graph import FuncGraph
 
 import numpy as np
 
+from tensorflow.python.util import compat
+from tensorflow.python.eager import execute
+
+def add_gradients_to_op(op):
+    # Record the gradient because custom-made ops don't go through the
+    # code-gen'd eager call path
+    op_type = compat.as_str(op.op_def.name)
+    attr_names = [compat.as_str(attr.name) for attr in op.op_def.attr]
+    attrs = []
+    for attr_name in attr_names:
+      attrs.append(attr_name)
+      attrs.append(op.get_attr(attr_name))
+    attrs = tuple(attrs)
+    execute.record_gradient(op_type, op.inputs, attrs, op.outputs)
+    return op
+
 
 class NNCFWrapperCustom(tf.keras.layers.Wrapper):
     def __init__(self, layer, **kwargs):
@@ -55,22 +71,54 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
         #         tf.TensorSpec(shape=input_shape, dtype=tf.float32), training=False)
         #
         if self.CREATE_GRAPH_ON_BUILD:
-            from tensorflow.python.distribute import distribution_strategy_context
-            from tensorflow.python.keras import backend as K
-            from tensorflow.python.keras.saving.saved_model import utils
-            with K.deprecated_internal_learning_phase_scope(0):
-                # When saving a model involving batch norm layer within a strategy scope,
-                # the replica context is not available when calling `add_update()`, and thus
-                # we use the default replica context here.
-                #with distribution_strategy_context._get_default_replica_context():  # pylint: disable=protected-access
-                with utils.keras_option_scope(True):
-                    self.concr_train_fn = tf.function(self.layer.call).get_concrete_function(
-                               tf.TensorSpec(shape=input_shape, dtype=tf.float32), training=True)
+            #from tensorflow.python.distribute import distribution_strategy_context
+            #from tensorflow.python.keras import backend as K
+            #from tensorflow.python.keras.saving.saved_model import utils
+            self.layer.build(input_shape[1:])
 
-                    #self.fn_train = _WrapperFunction(function_lib.ConcreteFunction(
-                    #                                     func_graph=self.concr_train_fn.graph,
-                    #                                     function_spec=self.concr_train_fn._function_spec))
-                    self.fn_train = self.concr_train_fn
+            concrete = tf.function(self.layer.train_fn).get_concrete_function(*[tf.TensorSpec(input_shape, tf.float32)]*3) #,
+                                                                          #tf.TensorSpec(input_shape, tf.float32))
+            gd = concrete.graph.as_graph_def()
+
+            @tf.function
+            def train_fn(inputs):
+                inputs = tf.convert_to_tensor(inputs, tf.float32)
+                input_map = {
+                  'inputs:0': inputs,
+                  'a:0': self.layer.a,
+                  'b:0': self.layer.b
+                }
+                # Import the graph giving x as input and getting the output y
+                y = tf.graph_util.import_graph_def(
+                    gd, input_map=input_map, return_elements=['Identity:0'])[0]
+                return y
+
+            self.train_fn = train_fn
+            #with K.deprecated_internal_learning_phase_scope(0):
+            #    # When saving a model involving batch norm layer within a strategy scope,
+            #    # the replica context is not available when calling `add_update()`, and thus
+            #    # we use the default replica context here.
+            #    #with distribution_strategy_context._get_default_replica_context():  # pylint: disable=protected-access
+            #    with utils.keras_option_scope(True):
+            #        from tensorflow.python.keras.engine.base_layer import TensorFlowOpLayer
+            #        self.concr_train_fn = tf.function(self.layer.call).get_concrete_function(
+            #                   tf.TensorSpec(shape=input_shape, dtype=tf.float32), training=True)
+
+            #        gd = self.concr_train_fn.graph.as_graph_def()
+            #        #operations = self.concr_train_fn.graph.get_operations()
+            #        #for i in range(len(operations)):
+            #        #    operations[i] = add_gradients_to_op(operations[i])
+
+            #        #self.fn_train = _WrapperFunction(function_lib.ConcreteFunction(
+            #        #                                     func_graph=self.concr_train_fn.graph,
+            #        #                                     function_spec=self.concr_train_fn._function_spec))
+            #        #self.concr_train_fn.add_gradient_functions_to_graph()
+            #        @tf.function
+            #        def my_new_train_fn(inputs):
+            #            return tf.graph_util.import_graph_def(
+            #                       gd, input_map={'inputs:0': inputs}, return_elements=['Identity:0'])[0]
+
+            #        self.fn_train = my_new_train_fn
         #self.evn = _WrapperFunction(function_lib.ConcreteFunction(
         #    self.concr_eval_fn.graph))
         #
@@ -108,6 +156,8 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
     REBUILD_CONCREETE = True
     #@tf.function
     def call(self, inputs, training=None):
+        return self.train_fn(inputs)
+        '''
         if tf.distribute.has_strategy():
             if not self.REBUILD_CONCREETE:
                 fn_train = tf.function(self.layer.call).get_concrete_function(
@@ -211,7 +261,7 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
                 return concr_eval_fn(inputs)
 
         #return self._func(inputs, training)
-
+'''
 
 def make_new_func(output_graph_def, captures, variables, inputs, outputs):
     new_input_names = [tensor.name for tensor in inputs]
