@@ -143,39 +143,12 @@ def train_test_export(config):
     train_steps = train_builder.num_steps
     validation_steps = validation_builder.num_steps
 
-    class ResNetBlock(tf.keras.layers.Layer):
-        def __init__(self):
-            super(ResNetBlock, self).__init__()
-            self.block_1 = tf.keras.layers.Conv2D(2, 3)
-            self.block_2 = tf.keras.layers.Conv2D(2, 3)
-
-        def call(self, inputs, training=None):
-            x = self.block_1(inputs)
-            return self.block_2(x)
-
-    class ResNet(tf.keras.Model):
-        def __init__(self):
-            super(ResNet, self).__init__()
-            self.block_1 = ResNetBlock()
-            self.global_pool = tf.keras.layers.GlobalAveragePooling2D()
-            self.classifier = tf.keras.layers.Dense(1000)
-
-        def call(self, inputs):
-            x = self.block_1(inputs)
-            x = self.global_pool(x)
-            return self.classifier(x)
-
-    #m = ResNet()
-    #
-    #input = tf.random.uniform((1, 28, 28, 3))
-    # output = m(input)
-    #
-    # m.save("/home/alexsu/work/tmp/", save_format='tf')
-
     class DummyLayer(tf.keras.layers.Layer):
         def build(self, input_shape):
-            self.a = self.add_weight('multiplyer', input_shape, tf.float32, tf.keras.initializers.Constant(tf.constant(2.)))
-            self.b = self.add_weight('bias', input_shape, tf.float32, tf.keras.initializers.Constant(tf.constant(1.)))
+            self.a = self.add_weight('multiplyer', input_shape, tf.float32,
+                                     tf.keras.initializers.Constant(tf.constant(2.)))
+            self.b = self.add_weight('bias', input_shape, tf.float32,
+                                     tf.keras.initializers.Constant(tf.constant(1.)))
 
         @staticmethod
         def train_fn(inputs, a, b):
