@@ -13,7 +13,7 @@ from tensorflow.core.protobuf import meta_graph_pb2
 from tensorflow.core.protobuf import rewriter_config_pb2
 from tensorflow.python.grappler import tf_optimizer
 from tensorflow.python.training.saver import export_meta_graph
-
+from tensorflow.python.distribute import values as values_lib
 from tensorflow.python.framework.func_graph import FuncGraph
 
 import numpy as np
@@ -71,29 +71,119 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
         #         tf.TensorSpec(shape=input_shape, dtype=tf.float32), training=False)
         #
         if self.CREATE_GRAPH_ON_BUILD:
+
             #from tensorflow.python.distribute import distribution_strategy_context
             #from tensorflow.python.keras import backend as K
             #from tensorflow.python.keras.saving.saved_model import utils
+
             self.layer.build(input_shape[1:])
 
-            concrete = tf.function(self.layer.train_fn).get_concrete_function(*[tf.TensorSpec(input_shape, tf.float32)]*3) #,
-                                                                          #tf.TensorSpec(input_shape, tf.float32))
-            gd = concrete.graph.as_graph_def()
+            self.input_shape__ = input_shape
+
+
+            #return
+            tf_f = tf.function(self.layer.call)
+            self.train_fn = tf_f
+            self.tf_f = tf_f
+            return
+            #concrete = tf.function(self.layer.call).get_concrete_function(*[tf.TensorSpec(input_shape, tf.float32)]) #,
+            #                                                              #tf.TensorSpec(input_shape, tf.float32))
+            #gd = concrete.graph.as_graph_def()
+            ##@tf.function
+            ##def train_fn(inputs):
+            ##    inputs = tf.convert_to_tensor(inputs, tf.float32)
+            ##    input_map = {
+            ##      'inputs:0': inputs,
+            ##      'Identity/ReadVariableOp/resource:0': self.layer.a,
+            ##      'add/Identity/ReadVariableOp/resource:0': self.layer.b
+            ##    }
+            ##    # Import the graph giving x as input and getting the output y
+            ##    y = tf.graph_util.import_graph_def(
+            ##        gd, input_map=input_map, return_elements=['Identity:0'])[0]
+            ##    return y
+            #fn_train = make_new_func(concrete.graph.as_graph_def(),
+            #                         concrete.graph.captures,
+            #                         concrete.graph.variables,
+            #                         concrete.inputs,
+            #                         concrete.outputs)
+            #self.train_fn = fn_train
+            #return
+
+            l = tf.keras.layers.Dense(10)
+            l.build((150528, ))
+            concrete_conv1d = tf.function(l.call).get_concrete_function(*[tf.TensorSpec(input_shape, tf.float32)])
+            captured_conv1d = make_new_func(concrete_conv1d.graph.as_graph_def(),
+                                            concrete_conv1d.graph.captures,
+                                            concrete_conv1d.graph.variables,
+                                            concrete_conv1d.inputs,
+                                            concrete_conv1d.outputs)
+
+            with fn_train.graph.as_default() as g:
+                y = g.get_tensor_by_name('Identity_1:0')
+                z = tf.graph_util.import_graph_def(
+                    captured_conv1d.graph.as_graph_def(), input_map={'inputs:0': y}, return_elements=['Identity:0'])[0]
+
+            gd = g.as_graph_def()
+            #for op in fn_train.graph.get_operations():
+            #   execute.record_gradient(op.type, op.inputs, op.node_def.attr, op.outputs)
 
             @tf.function
-            def train_fn(inputs):
+            def modified_fun(inputs):
                 inputs = tf.convert_to_tensor(inputs, tf.float32)
                 input_map = {
                   'inputs:0': inputs,
-                  'a:0': self.layer.a,
-                  'b:0': self.layer.b
                 }
                 # Import the graph giving x as input and getting the output y
                 y = tf.graph_util.import_graph_def(
-                    gd, input_map=input_map, return_elements=['Identity:0'])[0]
+                    gd, input_map=input_map, return_elements=['import/Identity:0'])[0]
                 return y
 
-            self.train_fn = train_fn
+            # Create dummy model to save
+            class DummyLayer(tf.keras.layers.Layer):
+                def call(self, inputs, **kwargs):
+                    return modified_fun(inputs)
+
+            model = tf.keras.Sequential([tf.keras.Input(input_shape[1:]),
+                                 DummyLayer()])
+            self.train_fn = make_new_func(g.as_graph_def(),
+                                          g.captures,
+                                          g.variables,
+                                          fn_train.inputs,
+                                          captured_conv1d.outputs)
+            #return
+            #path = '/tmp/model.pb'
+            #model.save(path, save_format='tf')
+            #model = tf.keras.models.load_model(path)
+
+            self.vars = concrete.variables
+            #self.vars = [
+            #    self.layer.a,
+            #    self.layer.b
+            #]
+
+            #fn_train = _rebuild_func(concrete)
+
+            self.train_fn = fn_train
+            #self.train_fn = tf.function(fn_train).python_function#tf_f.python_function
+
+
+            # Leads to infinite loop
+            #@tf.custom_gradient
+            #def fn(inputs):
+            #    inputs = tf.convert_to_tensor(inputs, tf.float32)
+            #    outputs = concrete(inputs)
+            #    return outputs, lambda yx, variables: tf.gradients(yx, variables)
+
+
+            # Leads to deadlock
+            #@tf.function
+            #def fn(inputs):
+            #    inputs = tf.convert_to_tensor(inputs, tf.float32)
+            #    outputs = self.train_fn(inputs)
+            #    return outputs#, lambda yx, variables: tf.gradients(yx, variables)
+
+            #self.train_fn = fn
+
             #with K.deprecated_internal_learning_phase_scope(0):
             #    # When saving a model involving batch norm layer within a strategy scope,
             #    # the replica context is not available when calling `add_update()`, and thus
@@ -156,7 +246,40 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
     REBUILD_CONCREETE = True
     #@tf.function
     def call(self, inputs, training=None):
-        return self.train_fn(inputs)
+        #concrete = tf.function(self.layer.call).get_concrete_function(*[tf.TensorSpec(self.input_shape__, tf.float32)]) #,
+        concrete = self.tf_f.get_concrete_function(*[tf.TensorSpec(self.input_shape__, tf.float32)])
+                                                                      #tf.TensorSpec(input_shape, tf.float32))
+        #@tf.function
+        #def train_fn(inputs):
+        #    inputs = tf.convert_to_tensor(inputs, tf.float32)
+        #    input_map = {
+        #      'inputs:0': inputs,
+        #      'Identity/ReadVariableOp/resource:0': self.layer.a,
+        #      'add/Identity/ReadVariableOp/resource:0': self.layer.b
+        #    }
+        #    # Import the graph giving x as input and getting the output y
+        #    y = tf.graph_util.import_graph_def(
+        #        gd, input_map=input_map, return_elements=['Identity:0'])[0]
+        #    return y
+        fn_train = make_new_func(concrete.graph.as_graph_def(),
+                                 concrete.graph.captures,
+                                 concrete.graph.variables,
+                                 concrete.inputs,
+                                 concrete.outputs)
+        return fn_train(inputs)
+        #strategy = tf.distribute.get_strategy()
+        #return strategy.run(self.train_fn, (inputs, *self.vars))
+        #return self.train_fn(inputs, *self.vars)
+        #concrete = tf.function(self.layer.call).get_concrete_function(*[tf.TensorSpec(self.input_shape__, tf.float32)])
+        #fn_train = make_new_func(concrete.graph.as_graph_def(),
+        #                         concrete.graph.captures,
+        #                         concrete.graph.variables,
+        #                         concrete.inputs,
+        #                         concrete.outputs)
+        #print('\ntracing\n')
+        #return self.layer.call(inputs)
+        #return self.train_fn(inputs)
+        #return self.layer.call(inputs)
         '''
         if tf.distribute.has_strategy():
             if not self.REBUILD_CONCREETE:
@@ -263,22 +386,66 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
         #return self._func(inputs, training)
 '''
 
+
 def make_new_func(output_graph_def, captures, variables, inputs, outputs):
     new_input_names = [tensor.name for tensor in inputs]
     inputs_map = {
         tensor.name: tensor for tensor in inputs
     }
     new_output_names = [tensor.name for tensor in outputs]
-    new_func = my_function_from_graph_def(output_graph_def,
-                                          new_input_names,
-                                          new_output_names,
-                                          captures)
+   # new_func = my_function_from_graph_def(output_graph_def,
+   #                                       new_input_names,
+   #                                       new_output_names,
+   #                                       captures)
+    new_func = mod_my_function_from_graph_def(output_graph_def,
+                                              new_input_names,
+                                              new_output_names,
+                                              captures,)
+                                              #inputs_map,
+                                              #new_output_names)
     for input in new_func.inputs:
         input.set_shape(inputs_map[input.name].shape)
         break
 
     new_func.graph.variables = variables
     return new_func
+
+def _rebuild_func(func):
+    """Rebuild function from graph_def."""
+    gd = func.graph.as_graph_def()
+    rebuilt_func = wrap_function.function_from_graph_def(
+        gd, [tensor.name for tensor in func.inputs],
+        [tensor.name for tensor in func.outputs])
+    rebuilt_func.graph.structured_outputs = nest.pack_sequence_as(
+        func.graph.structured_outputs, rebuilt_func.graph.structured_outputs)
+    # Copy structured input signature from original function (used during
+    # serialization)
+    rebuilt_func.graph.structured_input_signature = (
+        func.structured_input_signature)
+
+    return rebuilt_func
+
+
+def mod_my_function_from_graph_def(graph_def, inputs, outputs, ref_captures):
+    def _imports_graph_def():
+        importer.import_graph_def(graph_def, name="")
+
+    wrapped_import = wrap_function.wrap_function(_imports_graph_def, [])
+    import_graph = wrapped_import.graph
+    wrapped_import.graph.reset_captures([(tensor, import_graph.get_tensor_by_name(placeholder.name))
+                                         for tensor, placeholder in ref_captures])
+
+    #op_type = compat.as_str(op.op_def.name)
+    #attr_names = [compat.as_str(attr.name) for attr in op.op_def.attr]
+    #attrs = []
+    #for attr_name in attr_names:
+    #  attrs.append(attr_name)
+    #  attrs.append(op.get_attr(attr_name))
+    #attrs = tuple(attrs)
+    #execute.record_gradient(op_type, op.inputs, attrs, op.outputs)
+    return wrapped_import.prune(
+        nest.map_structure(import_graph.as_graph_element, inputs),
+        nest.map_structure(import_graph.as_graph_element, outputs))
 
 
 def my_function_from_graph_def(graph_def, inputs, outputs, ref_captures):

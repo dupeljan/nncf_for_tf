@@ -182,7 +182,7 @@ def train_test_export(config):
             return a * inputs + b
 
         def call(self, inputs, **kwargs):
-            return self.train_fn(self.a, self.b)
+            return self.train_fn(inputs, self.a, self.b)
 
     with strategy_scope:
         from op_insertion import NNCFWrapperCustom
@@ -222,6 +222,7 @@ def train_test_export(config):
             epoch_size=train_builder.num_examples,
             batch_size=train_builder.global_batch_size,
             steps=train_steps)
+        config['optimizer'] = {'type': 'sgd'}
         optimizer = build_optimizer(
             config=config,
             scheduler=scheduler)
@@ -321,7 +322,7 @@ def main(argv):
     parser = get_argument_parser()
     config = get_config_from_argv(argv, parser)
 
-    config['eager_mode'] = True
+    #config['eager_mode'] = True
     serialize_config(config, config.log_dir)
 
     nncf_root = Path(__file__).absolute().parents[2]
