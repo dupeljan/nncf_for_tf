@@ -143,21 +143,22 @@ def train_test_export(config):
     train_steps = train_builder.num_steps
     validation_steps = validation_builder.num_steps
 
-    class DummyLayer(tf.keras.layers.Layer):
-        def build(self, input_shape):
-            self.a = self.add_weight('multiplyer', input_shape, tf.float32,
-                                     tf.keras.initializers.Constant(tf.constant(2.)))
-            self.b = self.add_weight('bias', input_shape, tf.float32,
-                                     tf.keras.initializers.Constant(tf.constant(1.)))
-
-        @staticmethod
-        def train_fn(inputs, a, b):
-            return a * inputs + b
-
-        def call(self, inputs, **kwargs):
-            return self.train_fn(inputs, self.a, self.b)
 
     with strategy_scope:
+        class DummyLayer(tf.keras.layers.Layer):
+            def build(self, input_shape):
+                self.a = self.add_weight('multiplyer', input_shape, tf.float32,
+                                         tf.keras.initializers.Constant(tf.constant(2.)))
+                self.b = self.add_weight('bias', input_shape, tf.float32,
+                                         tf.keras.initializers.Constant(tf.constant(1.)))
+
+            @staticmethod
+            def train_fn(inputs, a, b):
+                return a * inputs + b
+
+            def call(self, inputs, **kwargs):
+                return self.train_fn(inputs, self.a, self.b)
+
         from op_insertion import NNCFWrapperCustom
         model = tf.keras.Sequential([
             tf.keras.layers.Input(shape=(224, 224, 3)),
@@ -166,7 +167,7 @@ def train_test_export(config):
                 DummyLayer(),
             ),
             tf.keras.layers.Flatten(),
-            tf.keras.layers.Dense(1000),
+            tf.keras.layers.Dense(100),
             tf.keras.layers.Activation('softmax')
         ])
 
@@ -288,14 +289,14 @@ def export(config):
 
 
 def main(argv):
-    physical_devices = tf.config.list_physical_devices('GPU')
-    for device in physical_devices:
-        tf.config.experimental.set_memory_growth(device, True)
+    #physical_devices = tf.config.list_physical_devices('GPU')
+    #for device in physical_devices:
+    #    tf.config.experimental.set_memory_growth(device, True)
 
     parser = get_argument_parser()
     config = get_config_from_argv(argv, parser)
 
-    #config['eager_mode'] = True
+    config['eager_mode'] = True
     serialize_config(config, config.log_dir)
 
     nncf_root = Path(__file__).absolute().parents[2]
@@ -307,7 +308,7 @@ def main(argv):
 
 
 if __name__ == '__main__':
-    devices = tf.config.list_physical_devices('GPU')
-    for device in devices:
-        tf.config.experimental.set_memory_growth(device, True)
+    #devices = tf.config.list_physical_devices('GPU')
+    #for device in devices:
+    #    tf.config.experimental.set_memory_growth(device, True)
     main(sys.argv[1:])
