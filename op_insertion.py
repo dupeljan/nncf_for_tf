@@ -53,6 +53,19 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
         super().__init__(layer, **kwargs)
         self.callable = None
 
+    def get_custom_graph_fun(self, input_shape):
+        layer = tf.keras.layers.Conv1D(1, 10)
+
+        @tf.function
+        def f(inputs):
+            y = tf.expand_dims(inputs, 2)
+            y = layer(y)
+            return tf.reshape(y, (-1, y.shape[1]))
+
+        concrete = f.get_concrete_function(*[tf.TensorSpec(input_shape, tf.float32)])
+        return concrete, layer.variables
+
+
     def build(self, input_shape=None):
         self.layer.build(input_shape[1:])
         self.input_shape__ = input_shape
@@ -62,10 +75,39 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
         #proto_b = open(OUT_GRAPH_PATH, 'r').read()
         #gd = tf.compat.v1.GraphDef()
         #text_format.Merge(proto_b, gd)
-
+        #self.op_weight_shape = (3, 1, 1)
+        #self.op_weigths = tf.Variable(tf.ones(self.op_weight_shape))
         concrete = self.tf_f.get_concrete_function(*[tf.TensorSpec(self.input_shape__, tf.float32)])
+        # Create graph op which will be added to layer
+        op_concrete, self.op_vars = self.get_custom_graph_fun(input_shape)
+        #new_op = \
+        #    make_new_func(op_concrete.graph.as_graph_def(),
+        #                  op_concrete.graph.captures,
+        #                  op_concrete.variables,
+        #                  op_concrete.inputs,
+        #                  op_concrete.outputs)
+
+        # Add new op to layer
         with concrete.graph.as_default() as g:
-            tf.nn.softmax(g.outputs[0])
+            op_concrete(g.outputs[0])
+
+        #with concrete.graph.as_default() as g:
+        #    tf.import_graph_def(new_op.graph.as_graph_def(),
+        #                        input_map={new_op.inputs[0].name: g.outputs[0]},
+        #                        return_elements=[new_op.outputs[0].name])
+        #
+        #from tensorflow.python.framework.func_graph import FuncGraph
+        #new_func_graph = FuncGraph('')
+        #with new_func_graph.as_default():
+        #    x = tf.compat.v1.placeholder(tf.float32, concrete.inputs[0].shape, 'inputs')
+        #    tf.import_graph_def(concrete.graph.as_graph_def(),
+        #                        input_map={concrete.inputs[0].name: x},
+        #                        return_elements=[new_op.outputs[0].name])
+        concrete = make_new_func(concrete.graph.as_graph_def(),
+                                 concrete.graph.captures,
+                                 concrete.graph.variables,
+                                 concrete.inputs,
+                                 op_concrete.outputs)
 
         #fn_train = make_new_func(concrete.graph.as_graph_def(),
         #                         concrete.graph.captures,
@@ -78,6 +120,7 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
 
         #exit()
         self.fn_train = concrete
+        self.op_concrete = op_concrete
         #self.fn_train_graph = g
 
     def call(self, inputs, training=None):
@@ -127,7 +170,7 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
             replica_id = replica_context.replica_id_in_sync_group
             new_variables = []
             new_captured = []
-            for var, input_tensor in zip(self.layer.variables, self.fn_train.inputs[1:]):
+            for var, input_tensor in zip(self.layer.variables + self.op_vars, self.fn_train.inputs[1:]):
                 new_variables.append(var._get_replica(replica_id))
                 new_captured.append((var._get_replica(replica_id).handle, input_tensor))
 
@@ -139,7 +182,7 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
                                  new_captured,
                                  new_variables,
                                  self.fn_train.inputs,
-                                 self.fn_train.outputs)
+                                 self.op_concrete.outputs)
 
         # Recreate variables
         #func_graph = FuncGraph('')

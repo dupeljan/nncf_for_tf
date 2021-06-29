@@ -167,7 +167,7 @@ def train_test_export(config):
                 DummyLayer(),
             ),
             tf.keras.layers.Flatten(),
-            tf.keras.layers.Dense(100),
+            tf.keras.layers.Dense(1001),
             tf.keras.layers.Activation('softmax')
         ])
 
