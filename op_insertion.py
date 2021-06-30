@@ -1,4 +1,6 @@
 import tensorflow as tf
+import numpy as np
+
 
 from tensorflow.python.framework import importer
 from tensorflow.python.eager import wrap_function
@@ -23,6 +25,10 @@ from tensorflow.python.framework.func_graph import convert_structure_to_signatur
 from tensorflow.python.framework.func_graph import flatten
 from tensorflow.python.framework.func_graph import check_mutation
 
+
+from contrib import input_to_ops
+from tensorflow.python.ops import init_ops
+
 OUT_GRAPH_PATH = '/tmp/graph_def_test.txt'
 def insert_softmax_in_graph(fn_train):
     with fn_train.graph.as_default() as g:
@@ -33,6 +39,58 @@ def insert_softmax_in_graph(fn_train):
                              g.variables,
                              fn_train.inputs,
                              [softmax])
+
+# Copyed from:tensorflow.contrib.quantize.python.common.DropStringPrefix tags/v1.15.0
+def RerouteTensor(t0, t1, can_modify=None):
+    """Reroute the end of the tensor t0 to the ends of the tensor t1.
+
+    Args:
+      t0: a tf.Tensor.
+      t1: a tf.Tensor.
+      can_modify: iterable of operations which can be modified. Any operation
+        outside within_ops will be left untouched by this function.
+
+    Returns:
+      The number of individual modifications made by the function.
+    """
+    nb_update_inputs = 0
+    consumers = t1.consumers()
+    if can_modify is not None:
+        consumers = [c for c in consumers if c in can_modify]
+    consumers_indices = {}
+    for c in consumers:
+        consumers_indices[c] = [i for i, t in enumerate(c.inputs) if t is t1]
+    for c in consumers:
+        for i in consumers_indices[c]:
+            c._update_input(i, t0)  # pylint: disable=protected-access
+            nb_update_inputs += 1
+    return nb_update_inputs
+
+
+# Copied from pocketflow:learners.uniform_quantization_tf.utils.insert_quant_op
+def insert_quant_op(graph, node_name, insert_op_output_tensor):
+    """Insert quantization operations to the specified activation node.
+
+    Args:
+    * graph: TensorFlow graph
+    * node_name: activation node's name
+    """
+
+    # locate the node & activation operation
+    for op in graph.get_operations():
+        if node_name in [node.name for node in op.outputs]:
+            tf.logging.info('op: {} / inputs: {} / outputs: {}'.format(
+                op.name, [node.name for node in op.inputs], [node.name for node in op.outputs]))
+            conv_pred_act_tensor = op.outputs[0]
+            conv_pred_act_op = op
+            break
+
+    # re-route the graph to insert quantization operations
+    input_to_ops_map = input_to_ops.InputToOps(graph)
+    consumer_ops = input_to_ops_map.ConsumerOperations(conv_pred_act_op)
+    #insertion_node_ouput_tensor = None  # Output of the inserting node
+    nb_update_inputs = RerouteTensor(insert_op_output_tensor, conv_pred_act_tensor, consumer_ops)
+    tf.logging.info('nb_update_inputs = %d' % nb_update_inputs)
 
 
 class NNCFWrapperCustom(tf.keras.layers.Wrapper):
@@ -65,7 +123,6 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
         concrete = f.get_concrete_function(*[tf.TensorSpec(input_shape, tf.float32)])
         return concrete, layer.variables
 
-
     def build(self, input_shape=None):
         self.layer.build(input_shape[1:])
         self.input_shape__ = input_shape
@@ -79,7 +136,7 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
         #self.op_weigths = tf.Variable(tf.ones(self.op_weight_shape))
         concrete = self.tf_f.get_concrete_function(*[tf.TensorSpec(self.input_shape__, tf.float32)])
         # Create graph op which will be added to layer
-        op_concrete, self.op_vars = self.get_custom_graph_fun(input_shape)
+        #op_concrete, self.op_vars = self.get_custom_graph_fun(input_shape)
         #new_op = \
         #    make_new_func(op_concrete.graph.as_graph_def(),
         #                  op_concrete.graph.captures,
@@ -87,9 +144,19 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
         #                  op_concrete.inputs,
         #                  op_concrete.outputs)
 
+        self.op_vars = []
         # Add new op to layer
+        #add_var = tf.Variable(tf.ones(input_shape[1:]))
         with concrete.graph.as_default() as g:
-            op_concrete(g.outputs[0])
+            with variable_scope.variable_scope('new_node'):
+                add_weight = variable_scope.get_variable(
+                                 'new_add',
+                                 shape=input_shape[1:],
+                                 initializer=init_ops.constant_initializer(1),
+                                 trainable=True)
+                self.output_tensor = tf.math.add(g.outputs[0], add_weight)
+        self.op_vars.append(self.output_tensor)
+
 
         #with concrete.graph.as_default() as g:
         #    tf.import_graph_def(new_op.graph.as_graph_def(),
@@ -103,11 +170,11 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
         #    tf.import_graph_def(concrete.graph.as_graph_def(),
         #                        input_map={concrete.inputs[0].name: x},
         #                        return_elements=[new_op.outputs[0].name])
-        concrete = make_new_func(concrete.graph.as_graph_def(),
-                                 concrete.graph.captures,
-                                 concrete.graph.variables,
-                                 concrete.inputs,
-                                 op_concrete.outputs)
+        #concrete = make_new_func(concrete.graph.as_graph_def(),
+        #                         concrete.graph.captures,
+        #                         concrete.graph.variables,
+        #                         concrete.inputs,
+        #                         op_concrete.outputs)
 
         #fn_train = make_new_func(concrete.graph.as_graph_def(),
         #                         concrete.graph.captures,
@@ -120,7 +187,7 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
 
         #exit()
         self.fn_train = concrete
-        self.op_concrete = op_concrete
+        #self.op_concrete = op_concrete
         #self.fn_train_graph = g
 
     def call(self, inputs, training=None):
@@ -165,16 +232,18 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
         #with concrete.graph.as_default() as g:
         #    tf.nn.softmax(g.outputs[0])
         #return self.tf_f(inputs)
-        replica_context = tf.distribute.get_replica_context()
-        if replica_context is not None:
-            replica_id = replica_context.replica_id_in_sync_group
-            new_variables = []
-            new_captured = []
-            for var, input_tensor in zip(self.layer.variables + self.op_vars, self.fn_train.inputs[1:]):
-                new_variables.append(var._get_replica(replica_id))
-                new_captured.append((var._get_replica(replica_id).handle, input_tensor))
+        replica_context = None
+        if tf.distribute.has_strategy():
+            replica_context = tf.distribute.get_replica_context()
+            if replica_context is not None:
+                replica_id = replica_context.replica_id_in_sync_group
+                new_variables = []
+                new_captured = []
+                for var, input_tensor in zip(self.layer.variables + self.op_vars, self.fn_train.inputs[1:]):
+                    new_variables.append(var._get_replica(replica_id))
+                    new_captured.append((var._get_replica(replica_id).handle, input_tensor))
 
-        else:
+        if not tf.distribute.has_strategy() or not replica_context:
             new_variables = self.fn_train.graph.variables
             new_captured = self.fn_train.graph.captures
 
@@ -182,18 +251,18 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
                                  new_captured,
                                  new_variables,
                                  self.fn_train.inputs,
-                                 self.op_concrete.outputs)
+                                 [self.output_tensor])
 
         # Recreate variables
         #func_graph = FuncGraph('')
         #with func_graph.as_default():
         #    outputs = fn_train(inputs)
 
-        vars_id = sorted(get_concrete_vars_id(fn_train))
-        captures_id = sorted(get_concrete_captured_id(fn_train))
-        if vars_id != captures_id:
-            # It doesn't work here, but inside concrete function call vars_id changes somehow
-            print('Gradients will not leak because id\'s id is differs')
+        #vars_id = sorted(get_concrete_vars_id(fn_train))
+        #captures_id = sorted(get_concrete_captured_id(fn_train))
+        #if vars_id != captures_id:
+        #    # It doesn't work here, but inside concrete function call vars_id changes somehow
+        #    print('Gradients will not leak because id\'s id is differs')
 
         #fn_train.graph.variables = concrete.variables
         return fn_train(inputs)
