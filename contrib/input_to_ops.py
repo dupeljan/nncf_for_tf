@@ -22,9 +22,7 @@ import collections
 
 
 # Skip all operations that are backprop related or export summaries.
-SKIPPED_PREFIXES = (
-    'gradients/', 'RMSProp/', 'Adagrad/', 'Const_', 'HistogramSummary',
-    'ScalarSummary')
+SKIPPED_PREFIXES = ()
 
 
 class InputToOps(object):
@@ -48,7 +46,7 @@ class InputToOps(object):
             if op.name.startswith(SKIPPED_PREFIXES):
                 continue
             for op_input in op.inputs:
-                self.mapping[op_input].add(op)
+                self.mapping[op_input.ref()].add(op)
 
     def ConsumerOperations(self, producer_op):
         """Looks through outputs of producer_op, finds ops that take them as input.
@@ -62,5 +60,5 @@ class InputToOps(object):
         """
         result = set()
         for inp in producer_op.outputs:
-            result.update(self.mapping[inp])
+            result.update(self.mapping[inp.ref()])
         return result

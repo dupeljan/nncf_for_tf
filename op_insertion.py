@@ -69,7 +69,7 @@ def RerouteTensor(t0, t1, can_modify=None):
 
 
 # Copied from pocketflow:learners.uniform_quantization_tf.utils.insert_quant_op
-def insert_quant_op(graph, node_name, insert_op_output_tensor):
+def insert_quant_op(graph, node_name, node_creation_fn):
     """Insert quantization operations to the specified activation node.
 
     Args:
@@ -78,20 +78,37 @@ def insert_quant_op(graph, node_name, insert_op_output_tensor):
     """
 
     # locate the node & activation operation
-    for op in graph.get_operations():
-        if node_name in [node.name for node in op.outputs]:
-            tf.logging.info('op: {} / inputs: {} / outputs: {}'.format(
-                op.name, [node.name for node in op.inputs], [node.name for node in op.outputs]))
-            conv_pred_act_tensor = op.outputs[0]
-            conv_pred_act_op = op
-            break
+    #for op in graph.get_operations():
+    #    if node_name in [node.name for node in op.outputs]:
+    #        tf.logging.info('op: {} / inputs: {} / outputs: {}'.format(
+    #            op.name, [node.name for node in op.inputs], [node.name for node in op.outputs]))
+    #        conv_pred_act_tensor = op.outputs[0]
+    #        conv_pred_act_op = op
+    #        break
+    conv_pred_act_op = [op for op in graph.get_operations() if node_name == op.name][0]
+    conv_pred_act_tensor = conv_pred_act_op.outputs[0]
 
     # re-route the graph to insert quantization operations
     input_to_ops_map = input_to_ops.InputToOps(graph)
     consumer_ops = input_to_ops_map.ConsumerOperations(conv_pred_act_op)
+    insert_op_output_tensor = node_creation_fn(conv_pred_act_tensor, graph)
     #insertion_node_ouput_tensor = None  # Output of the inserting node
     nb_update_inputs = RerouteTensor(insert_op_output_tensor, conv_pred_act_tensor, consumer_ops)
-    tf.logging.info('nb_update_inputs = %d' % nb_update_inputs)
+    print(f'nb_update_inputs = {nb_update_inputs}')
+
+
+def create_add_op_with_weights(input_tensor, graph):
+    """Should be called in graph context"""
+    with variable_scope.variable_scope('new_node'):
+        #add_weight = tf.Variable(tf.ones(input_shape[1:]))
+        add_weight = variable_scope.get_variable(
+            'new_add',
+            shape=input_tensor.shape[1:],
+            dtype=tf.float32,
+            initializer=tf.keras.initializers.Constant(3),#init_ops.constant_initializer(1),
+            trainable=True)
+        output_tensor = tf.math.multiply(input_tensor, add_weight)
+    return output_tensor
 
 
 class NNCFWrapperCustom(tf.keras.layers.Wrapper):
@@ -149,15 +166,11 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
         # Add new op to layer
         #add_var = tf.Variable(tf.ones(input_shape[1:]))
         with concrete.graph.as_default() as g:
-            with variable_scope.variable_scope('new_node'):
-                #add_weight = tf.Variable(tf.ones(input_shape[1:]))
-                add_weight = variable_scope.get_variable(
-                                 'new_add',
-                                 shape=input_shape[1:],
-                                 initializer=init_ops.constant_initializer(1),
-                                 trainable=True)
-                self.output_tensor = tf.math.add(g.outputs[0], add_weight)
-        self.add_weight = tf.Variable(tf.ones(input_shape[1:]))
+            target_node_name = [op for op in g.get_operations() if op.type == 'Mul'][0].name
+            insert_quant_op(g, target_node_name, create_add_op_with_weights)
+            self.output_tensor = g.outputs[0]
+
+        self.add_weight = tf.Variable(tf.fill(input_shape[1:], 3.))
         self.op_vars.append(self.add_weight)
 
 
