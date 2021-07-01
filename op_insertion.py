@@ -9,6 +9,7 @@ from tensorflow.python.pywrap_tfe import TFE_Py_TapeSetShouldRecordBackprop as \
 from tensorflow.python.ops.resource_variable_ops import variable_accessed as \
     add_resource_var_in_tape
 
+from tensorflow.python.distribute.values_util import get_current_replica_id_as_int
 from tensorflow.python.framework import auto_control_deps
 from tensorflow.python.framework import ops
 from tensorflow.python.ops import array_ops
@@ -149,13 +150,15 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
         #add_var = tf.Variable(tf.ones(input_shape[1:]))
         with concrete.graph.as_default() as g:
             with variable_scope.variable_scope('new_node'):
+                #add_weight = tf.Variable(tf.ones(input_shape[1:]))
                 add_weight = variable_scope.get_variable(
                                  'new_add',
                                  shape=input_shape[1:],
                                  initializer=init_ops.constant_initializer(1),
                                  trainable=True)
                 self.output_tensor = tf.math.add(g.outputs[0], add_weight)
-        self.op_vars.append(self.output_tensor)
+        self.add_weight = tf.Variable(tf.ones(input_shape[1:]))
+        self.op_vars.append(self.add_weight)
 
 
         #with concrete.graph.as_default() as g:
@@ -236,7 +239,7 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
         if tf.distribute.has_strategy():
             replica_context = tf.distribute.get_replica_context()
             if replica_context is not None:
-                replica_id = replica_context.replica_id_in_sync_group
+                replica_id = get_current_replica_id_as_int()
                 new_variables = []
                 new_captured = []
                 for var, input_tensor in zip(self.layer.variables + self.op_vars, self.fn_train.inputs[1:]):
