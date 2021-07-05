@@ -193,8 +193,19 @@ def optimize_func(func,
                                         converted_input_indices)
 
 
+def create_mirrored_variables(vars):
+    retval = []
+    for var in vars:
+        mirrored_var = tf.Variable(var.numpy(),
+                                   trainable=var.trainable,
+                                   dtype=var.dtype,
+                                   name=var.name.split(':')[0] + '_mirrored')
+        retval.append(mirrored_var)
+    return retval
+
+
 class NNCFWrapperCustom(tf.keras.layers.Wrapper):
-    def __init__(self, layer, concrete, **kwargs):
+    def __init__(self, layer, graph_def, concrete, **kwargs):
         if layer is None:
             raise ValueError('`layer` cannot be None.')
 
@@ -210,6 +221,7 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
 
         super().__init__(layer, **kwargs)
         self.callable = None
+        self.graph_def = graph_def
         self.concrete = concrete
 
     def get_custom_graph_fun(self, input_shape):
@@ -235,42 +247,15 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
         #text_format.Merge(proto_b, gd)
         #self.op_weight_shape = (3, 1, 1)
         #self.op_weigths = tf.Variable(tf.ones(self.op_weight_shape))
-        concrete = self.concrete#self.tf_f.get_concrete_function(*[tf.TensorSpec(self.input_shape__, tf.float32)])
+        gd = self.graph_def#self.tf_f.get_concrete_function(*[tf.TensorSpec(self.input_shape__, tf.float32)])
 
-        # Convert constants to variables
-        const_var_name_pairs = []
-        with concrete.graph.as_default() as g:
-            with variable_scope.variable_scope('new_var'):
-                constants = [op for op in g.get_operations() if op.type == 'Const']
-                for op in constants[:-2]:
-                    tensor = g.get_tensor_by_name('{}:0'.format(op.name))
-                    with tf.compat.v1.Session() as sess:
-                        tensor_as_numpy_array = sess.run(tensor)
-                    var_shape = tensor.get_shape()
-                    # Give each variable a name that doesn't already exist in the graph
-                    var_name = '{}_turned_var'.format(op.name)
-                    # Create TensorFlow variable initialized by values of original const.
-                    var = tf.compat.v1.get_variable(name=var_name, dtype='float32', shape=var_shape,\
-                                                    initializer=tf.constant_initializer(tensor_as_numpy_array))
-                    identity = tf.identity(var, name=var_name)
-                    # We want to keep track of our variables names for later.
-                    const_var_name_pairs.append((op.name, identity.name.split(':')[0]))
+        concrete = make_new_func(gd,
+                                 self.concrete.graph.captures,        # Wrap frozen graph to ConcreteFunctions
+                                 self.concrete.variables,        #concrete = wrap_frozen_graph(graph_def=concrete.graph.as_graph_def(),
+                                 self.concrete.inputs,        #                             inputs=[concrete.inputs[0].name],
+                                 self.concrete.outputs)        #                             outputs=[concrete.outputs[0].name])
 
-                # At this point, we added a bunch of tf.Variables to the graph, but they're
-                # not connected to anything.
-
-                # The magic: we use TF Graph Editor to swap the Constant nodes' outputs with
-                # the outputs of our newly created Variables.
-
-                for const_name, var_name in const_var_name_pairs:
-                    const_op = g.get_operation_by_name(const_name)
-                    var_reader_op = g.get_operation_by_name(var_name)
-                    ge.swap_outputs(ge.sgv(const_op), ge.sgv(var_reader_op))
-        # Wrap frozen graph to ConcreteFunctions
-        #concrete = wrap_frozen_graph(graph_def=concrete.graph.as_graph_def(),
-        #                             inputs=[concrete.inputs[0].name],
-        #                             outputs=[concrete.outputs[0].name])
-
+        self.mirrored_variables = create_mirrored_variables(concrete.variables)
         #concrete = optimize_func(concrete)
         # Create graph op which will be added to layer
         #op_concrete, self.op_vars = self.get_custom_graph_fun(input_shape)
@@ -379,7 +364,7 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
                 replica_id = get_current_replica_id_as_int()
                 new_variables = []
                 new_captured = []
-                for var, input_tensor in zip(self.layer.variables + self.op_vars, self.fn_train.inputs[1:]):
+                for var, input_tensor in zip(self.mirrored_variables + self.op_vars, self.fn_train.inputs[1:]):
                     new_variables.append(var._get_replica(replica_id))
                     new_captured.append((var._get_replica(replica_id).handle, input_tensor))
 
