@@ -25,9 +25,10 @@ from tensorflow.python.framework.func_graph import _get_defun_inputs_from_kwargs
 from tensorflow.python.framework.func_graph import convert_structure_to_signature
 from tensorflow.python.framework.func_graph import flatten
 from tensorflow.python.framework.func_graph import check_mutation
-
+import graph_editor as ge
 
 from contrib import input_to_ops
+from tensorflow.python.framework.convert_to_constants import convert_variables_to_constants_v2
 from tensorflow.python.ops import init_ops
 
 OUT_GRAPH_PATH = '/tmp/graph_def_test.txt'
@@ -75,6 +76,7 @@ def insert_quant_op(graph, node_name, node_creation_fn):
     Args:
     * graph: TensorFlow graph
     * node_name: activation node's name
+    :return: shape of weight of the inserted operation.
     """
 
     # locate the node & activation operation
@@ -95,6 +97,7 @@ def insert_quant_op(graph, node_name, node_creation_fn):
     #insertion_node_ouput_tensor = None  # Output of the inserting node
     nb_update_inputs = RerouteTensor(insert_op_output_tensor, conv_pred_act_tensor, consumer_ops)
     print(f'nb_update_inputs = {nb_update_inputs}')
+    return conv_pred_act_tensor.shape
 
 
 def create_add_op_with_weights(input_tensor, graph):
@@ -111,23 +114,103 @@ def create_add_op_with_weights(input_tensor, graph):
     return output_tensor
 
 
+optimize_by_tf = True
+if optimize_by_tf:
+    from tensorflow.python.framework.convert_to_constants import _FunctionConverterData
+    from tensorflow.python.framework.convert_to_constants import _construct_concrete_function
+    from tensorflow.python.framework.convert_to_constants import _GraphDef
+else:
+    from convert_to_constants import _FunctionConverterData
+    from convert_to_constants import _construct_concrete_function
+    from convert_to_constants import _GraphDef
+
+
+def _replace_variables_by_constants(converter_data):
+    """Replaces variables by constants on a given graph.
+
+    Given a _ConverterData instance with converted variables in its tensor_data
+    field, create a new graph where the respective variables are replaced with the
+    converted constants.
+
+    Args:
+      converter_data: A pre-populated _ConverterData instance.
+
+    Returns:
+      The converted graph.
+    """
+    input_graph = _GraphDef(converter_data.graph_def)
+
+    for tensor_name, tensor_data in converter_data.tensor_data.items():
+        input_graph.nodes[tensor_name].convert_variable_to_constant(
+          None, tensor_data)
+
+    converted_graph = input_graph.converted_self().graph_def
+
+    converted_input_indices = {
+        t.index
+        for t in converter_data.tensor_data.values()
+        if t.index is not None
+    }
+
+    return converted_graph, converted_input_indices
+
+
+def optimize_func(func,
+                  lower_control_flow=True,
+                  aggressive_inlining=False):
+    """Replaces all the variables in a graph with constants of the same values.
+
+    TensorFlow 2.0 function for converting all Variable ops into Const ops holding
+    the same values. This makes it possible to describe the network fully with a
+    single GraphDef file, and allows the removal of a lot of ops related to
+    loading and saving the variables. This function runs Grappler's function
+    inlining optimization in order to return a single subgraph.
+
+    The current implementation only works for graphs that do not contain any
+    control flow or embedding related ops.
+
+    Args:
+      func: ConcreteFunction.
+      lower_control_flow: Boolean indicating whether or not to lower control flow
+        ops such as If and While. (default True)
+      aggressive_inlining: Boolean indicating whether or not to to aggressive
+        function inlining (might be unsafe if function has stateful ops, not
+        properly connected to control outputs). (default False)
+
+    Returns:
+      ConcreteFunction containing a simplified version of the original.
+    """
+
+    converter_data = _FunctionConverterData(
+        func=func,
+        lower_control_flow=lower_control_flow,
+        aggressive_inlining=aggressive_inlining)
+
+    output_graph_def, converted_input_indices = _replace_variables_by_constants(
+        converter_data=converter_data)
+
+    return _construct_concrete_function(func, output_graph_def,
+                                        converted_input_indices)
+
+
 class NNCFWrapperCustom(tf.keras.layers.Wrapper):
-    def __init__(self, layer, **kwargs):
+    def __init__(self, layer, concrete, **kwargs):
         if layer is None:
             raise ValueError('`layer` cannot be None.')
 
-        if not isinstance(layer, tf.keras.layers.Layer) or \
-                isinstance(layer, tf.keras.Model):
-            raise ValueError(
-                '`layer` can only be a `tf.keras.layers.Layer` instance. '
-                'You passed an instance of type: {input}.'.format(
-                    input=layer.__class__.__name__))
+        #if not isinstance(layer, tf.keras.layers.Layer) or \
+        #        isinstance(layer, tf.keras.Model):
+        #    raise ValueError(
+        #        '`layer` can only be a `tf.keras.layers.Layer` instance. '
+        #        'You passed an instance of type: {input}.'.format(
+        #            input=layer.__class__.__name__))
 
         if 'name' not in kwargs:
             kwargs['name'] = '{}_{}'.format('nncf_wrapper_custom', layer.name)
 
         super().__init__(layer, **kwargs)
         self.callable = None
+        self.concrete = concrete
 
     def get_custom_graph_fun(self, input_shape):
         layer = tf.keras.layers.Conv1D(1, 10)
@@ -144,7 +227,7 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
     def build(self, input_shape=None):
         self.layer.build(input_shape[1:])
         self.input_shape__ = input_shape
-        self.tf_f = tf.function(self.layer.call)
+        #self.tf_f = tf.function(self.layer.call)
         #self.tf_f(tf.ones((1,) + input_shape[1:]))
         #from google.protobuf import text_format
         #proto_b = open(OUT_GRAPH_PATH, 'r').read()
@@ -152,7 +235,43 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
         #text_format.Merge(proto_b, gd)
         #self.op_weight_shape = (3, 1, 1)
         #self.op_weigths = tf.Variable(tf.ones(self.op_weight_shape))
-        concrete = self.tf_f.get_concrete_function(*[tf.TensorSpec(self.input_shape__, tf.float32)])
+        concrete = self.concrete#self.tf_f.get_concrete_function(*[tf.TensorSpec(self.input_shape__, tf.float32)])
+
+        # Convert constants to variables
+        const_var_name_pairs = []
+        with concrete.graph.as_default() as g:
+            with variable_scope.variable_scope('new_var'):
+                constants = [op for op in g.get_operations() if op.type == 'Const']
+                for op in constants[:-2]:
+                    tensor = g.get_tensor_by_name('{}:0'.format(op.name))
+                    with tf.compat.v1.Session() as sess:
+                        tensor_as_numpy_array = sess.run(tensor)
+                    var_shape = tensor.get_shape()
+                    # Give each variable a name that doesn't already exist in the graph
+                    var_name = '{}_turned_var'.format(op.name)
+                    # Create TensorFlow variable initialized by values of original const.
+                    var = tf.compat.v1.get_variable(name=var_name, dtype='float32', shape=var_shape,\
+                                                    initializer=tf.constant_initializer(tensor_as_numpy_array))
+                    identity = tf.identity(var, name=var_name)
+                    # We want to keep track of our variables names for later.
+                    const_var_name_pairs.append((op.name, identity.name.split(':')[0]))
+
+                # At this point, we added a bunch of tf.Variables to the graph, but they're
+                # not connected to anything.
+
+                # The magic: we use TF Graph Editor to swap the Constant nodes' outputs with
+                # the outputs of our newly created Variables.
+
+                for const_name, var_name in const_var_name_pairs:
+                    const_op = g.get_operation_by_name(const_name)
+                    var_reader_op = g.get_operation_by_name(var_name)
+                    ge.swap_outputs(ge.sgv(const_op), ge.sgv(var_reader_op))
+        # Wrap frozen graph to ConcreteFunctions
+        #concrete = wrap_frozen_graph(graph_def=concrete.graph.as_graph_def(),
+        #                             inputs=[concrete.inputs[0].name],
+        #                             outputs=[concrete.outputs[0].name])
+
+        #concrete = optimize_func(concrete)
         # Create graph op which will be added to layer
         #op_concrete, self.op_vars = self.get_custom_graph_fun(input_shape)
         #new_op = \
@@ -165,14 +284,19 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
         self.op_vars = []
         # Add new op to layer
         #add_var = tf.Variable(tf.ones(input_shape[1:]))
-        with concrete.graph.as_default() as g:
-            target_node_name = [op for op in g.get_operations() if op.type == 'Mul'][0].name
-            insert_quant_op(g, target_node_name, create_add_op_with_weights)
-            self.output_tensor = g.outputs[0]
+        add_vars = False
+        if add_vars:
+            with concrete.graph.as_default() as g:
+                #target_node_name = [op for op in g.get_operations() if op.type == 'Mul'][0].name
+                target_node_name = [op for op in concrete.graph.get_operations() if 'conv2d' in op.type.lower()][0].name
+                weights_shape = insert_quant_op(g, target_node_name, create_add_op_with_weights)
+                self.output_tensor = g.outputs[0]
 
-        self.add_weight = tf.Variable(tf.fill(input_shape[1:], 3.))
-        self.op_vars.append(self.add_weight)
+            self.add_weight = tf.Variable(tf.fill(weights_shape[1:], 3.))
+            self.op_vars.append(self.add_weight)
 
+        else:
+            self.output_tensor = concrete.graph.outputs[0]
 
         #with concrete.graph.as_default() as g:
         #    tf.import_graph_def(new_op.graph.as_graph_def(),
@@ -311,96 +435,6 @@ def _check_concrete_fun_resource_vars_is_in_tape(concrete):
     return check_tensor_in_tape(concrete.captured_inputs)
 
 
-def setup_only_concrete_fun(g, call):
-    from tensorflow.python.eager.function import FunctionSpec
-    from tensorflow.python.eager.function import ConcreteFunction
-    from tensorflow.python.util import object_identity
-    spec = FunctionSpec.from_function_and_signature(
-        call,
-        None)
-    graph_function = ConcreteFunction(g, function_spec=spec)
-    seen_names = set()
-    captured = object_identity.ObjectIdentitySet(
-        graph_function.graph.internal_captures)
-    # pylint: disable=protected-access
-    graph_function._arg_keywords = []
-    prefix_counts = {}
-    # pylint: enable=protected-access
-    num_positional = 0
-    for arg in graph_function.graph.inputs:
-        if arg in captured:
-            break
-        num_positional += 1
-        #user_arg_name = compat.as_str(arg.op.get_attr("_user_specified_name"))
-        #proposal = user_arg_name
-        #while proposal in seen_names:
-        #    index = prefix_counts.get(user_arg_name, 1)
-        #    proposal = "{}_{}".format(user_arg_name, index)
-        #    prefix_counts[user_arg_name] = index + 1
-        #seen_names.add(proposal)
-
-    #graph_function._arg_keywords.append(proposal)  # pylint: disable=protected-access
-    # Anything can be a positional argument, in the same order as .inputs
-    graph_function._num_positional_args = num_positional  # pylint: disable=protected-access
-    return graph_function
-
-
-def setup_concrete_fun(fn_train, call):
-    from tensorflow.python.eager.function import FunctionSpec
-    from tensorflow.python.eager.function import ConcreteFunction
-    from tensorflow.python.util import object_identity
-    from tensorflow.python.framework import auto_control_deps
-    from tensorflow.python.util import nest
-
-    deps_control_manager = auto_control_deps.AutomaticControlDependencies()
-    g = fn_train.graph
-    with g.as_default(), deps_control_manager as deps_ctx:
-        def convert(x):
-            return deps_ctx.mark_as_return(x)
-
-        g.structured_outputs = nest.map_structure(convert, g.outputs,
-                                                  expand_composites=True)
-        # Returning a closed-over tensor does not trigger convert_to_tensor.
-        g.outputs.extend(
-            g.capture(x)
-            for x in flatten(g.structured_outputs)
-            if x is not None)
-
-    g.control_outputs.extend(deps_control_manager.ops_which_must_run)
-    g.collective_manager_ids_used = (
-        deps_control_manager.collective_manager_ids_used)
-
-    #return fn_train
-    spec = FunctionSpec.from_function_and_signature(
-        call,
-        None)
-    graph_function = ConcreteFunction(g, function_spec=spec)
-    seen_names = set()
-    captured = object_identity.ObjectIdentitySet(
-        graph_function.graph.internal_captures)
-    # pylint: disable=protected-access
-    graph_function._arg_keywords = []
-    prefix_counts = {}
-    # pylint: enable=protected-access
-    num_positional = 0
-    for arg in graph_function.graph.inputs:
-        if arg in captured:
-            break
-        num_positional += 1
-        #user_arg_name = compat.as_str(arg.op.get_attr("_user_specified_name"))
-        #proposal = user_arg_name
-        #while proposal in seen_names:
-        #    index = prefix_counts.get(user_arg_name, 1)
-        #    proposal = "{}_{}".format(user_arg_name, index)
-        #    prefix_counts[user_arg_name] = index + 1
-        #seen_names.add(proposal)
-
-    #graph_function._arg_keywords.append(proposal)  # pylint: disable=protected-access
-    # Anything can be a positional argument, in the same order as .inputs
-    graph_function._num_positional_args = num_positional  # pylint: disable=protected-access
-    return graph_function
-
-
 def make_new_func(output_graph_def, captures, variables, inputs, outputs):
     new_input_names = [tensor.name for tensor in inputs]
     inputs_map = {
@@ -419,243 +453,6 @@ def make_new_func(output_graph_def, captures, variables, inputs, outputs):
     return new_func
 
 
-
-def func_graph_from_func_graph(name,
-                               python_func,
-                               args,
-                               kwargs,
-                               signature=None,
-                               func_graph=None,
-                               autograph=False,
-                               autograph_options=None,
-                               add_control_dependencies=True,
-                               arg_names=None,
-                               op_return_value=None,
-                               collections=None,
-                               capture_by_value=None,
-                               override_flat_arg_shapes=None):
-    """Returns a `FuncGraph` generated from `python_func`.
-
-    Args:
-      name: an identifier for the function.
-      python_func: the Python function to trace.
-      args: the positional args with which the Python function should be called;
-        ignored if a signature is provided.
-      kwargs: the keyword args with which the Python function should be called;
-        ignored if a signature is provided.
-      signature: a possibly nested sequence of `TensorSpecs` specifying the shapes
-        and dtypes of the arguments. When a signature is provided, `args` and
-        `kwargs` are ignored, and `python_func` is traced with Tensors conforming
-        to `signature`. If `None`, the shapes and dtypes are inferred from the
-        inputs.
-      func_graph: Optional. An instance of FuncGraph. If provided, we will use
-        this graph else a new one is built and returned.
-      autograph: whether to use autograph to compile `python_func`.
-        See https://www.tensorflow.org/guide/autograph for more information.
-      autograph_options: additional knobs to control when `autograph=True`.
-        See https://www.tensorflow.org/guide/autograph for more information.
-      add_control_dependencies: If True, automatically adds control dependencies
-        to ensure program order matches execution order and stateful ops always
-        execute.
-      arg_names: Optional list of argument names, used to give input placeholders
-        recognizable names.
-      op_return_value: Optional. A Tensor. If set and `python_func` returns
-        Operations, those return values will be replaced with this value. If not
-        set, returning an Operation triggers an error.
-      collections: a dictionary of collections this FuncGraph should start
-        with. If not specified (None), the FuncGraph will read (but not write to)
-        the outer graph's collections that are not allowlisted, and both
-        read and write to the outer graph's collections that are allowlisted.
-        The current allowlisted collections are the global variables, the
-        local variables, and the trainable variables.
-        Defaults to None.
-      capture_by_value: An optional boolean. If True, the func graph will capture
-        Variables by value instead of reference. By default inherit from outer
-        graphs, and failing that will default to False.
-      override_flat_arg_shapes: An optional list of instances that are either
-        `None` or `TensorShape`.  The length must match that of
-        `nest.flatten((args, kwargs), expand_composites=True)`.  The entries
-        containing value `None` must match entries in flattened arguments
-        containing non-tensors, while entries containing a `TensorShape` must
-        match entries in the flattened arguments containing tensors.
-
-    Returns:
-      A FuncGraph.
-
-    Raises:
-      TypeError: If any of `python_func`'s return values is neither `None` nor a
-        `Tensor`.
-      ValueError: If both `signature` and `override_flat_arg_shapes` are
-        passed in.
-    """
-    if op_return_value is not None:
-        assert isinstance(op_return_value, ops.Tensor), op_return_value
-    if func_graph is None:
-        func_graph = FuncGraph(name, collections=collections,
-                               capture_by_value=capture_by_value)
-    assert isinstance(func_graph, FuncGraph)
-    if add_control_dependencies:
-        deps_control_manager = auto_control_deps.AutomaticControlDependencies()
-    else:
-        deps_control_manager = ops.NullContextmanager()
-
-    with func_graph.as_default(), deps_control_manager as deps_ctx:
-        current_scope = variable_scope.get_variable_scope()
-        default_use_recource = current_scope.use_resource
-        current_scope.set_use_resource(True)
-
-        if signature is not None and override_flat_arg_shapes is not None:
-            raise ValueError(
-                "Passed both signature and override_flat_arg_shapes: %s and %s."
-                % (signature, override_flat_arg_shapes))
-
-        if signature is not None:
-            args = signature
-            kwargs = {}
-
-        # Creates and names placeholders for all arguments.
-        if override_flat_arg_shapes is not None:
-            flat_args = nest.flatten(args, expand_composites=True)
-            arg_shapes = override_flat_arg_shapes[:len(flat_args)]
-            kwarg_shapes = override_flat_arg_shapes[len(flat_args):]
-        else:
-            arg_shapes = None
-            kwarg_shapes = None
-        func_args = _get_defun_inputs_from_args(
-            args, arg_names, flat_shapes=arg_shapes)
-        func_kwargs = _get_defun_inputs_from_kwargs(
-            kwargs, flat_shapes=kwarg_shapes)
-
-        # Convert all Tensors into TensorSpecs before saving the structured inputs.
-        # If storing pure concrete functions that are not called through polymorphic
-        # functions, we don't have access to FunctionSpec, so we need to call the
-        # TensorSpecs by their `arg_names` for later binding.
-        func_graph.structured_input_signature = (
-            convert_structure_to_signature(func_args, arg_names),
-            convert_structure_to_signature(func_kwargs))
-
-        flat_func_args = nest.flatten(func_args, expand_composites=True)
-        flat_func_kwargs = nest.flatten(func_kwargs, expand_composites=True)
-        # Temporarily set inputs to allow graph building code to inspect
-        # them. Reassigned below.
-        func_graph.inputs = [arg for arg in flat_func_args + flat_func_kwargs
-                             if isinstance(arg, ops.Tensor)]
-
-        # Note: `nest.flatten` sorts by keys, as does `_deterministic_dict_values`.
-        # Variables to help check whether mutation happens in calling the function
-        # Copy the recursive list, tuple and map structure, but not base objects
-        func_args_before = nest.pack_sequence_as(func_args, flat_func_args,
-                                                 expand_composites=True)
-        func_kwargs_before = nest.pack_sequence_as(
-            func_kwargs, flat_func_kwargs, expand_composites=True)
-
-        def convert(x):
-            """Converts a function output to a Tensor."""
-            if x is None:
-                return None
-            if op_return_value is not None and isinstance(x, ops.Operation):
-                # TODO(b/79881896): we currently can't capture external control deps, so
-                # this won't work if x needs to be captured (i.e. if python_func returns
-                # captured Operations).
-                with ops.control_dependencies([x]):
-                    x = array_ops.identity(op_return_value)
-            elif not isinstance(x, tensor_array_ops.TensorArray):
-                try:
-                    x = ops.convert_to_tensor_or_composite(x)
-                except (ValueError, TypeError):
-                    raise TypeError(
-                        "To be compatible with tf.eager.defun, Python functions "
-                        "must return zero or more Tensors; in compilation of %s, found "
-                        "return value of type %s, which is not a Tensor." %
-                        (str(python_func), type(x)))
-            if add_control_dependencies:
-                x = deps_ctx.mark_as_return(x)
-            return x
-
-        try:
-            if autograph:
-                from tensorflow.python import autograph  # pylint: disable=g-import-not-at-top
-                _, original_func = tf_decorator.unwrap(python_func)
-
-                def wrapper(*args, **kwargs):
-                    """Calls a converted version of original_func."""
-                    # TODO(mdan): Push this block higher in tf.function's call stack.
-                    try:
-                        return autograph.converted_call(
-                            original_func,
-                            args,
-                            kwargs,
-                            options=autograph.ConversionOptions(
-                                recursive=True,
-                                optional_features=autograph_options,
-                                user_requested=True,
-                            ))
-                    except Exception as e:  # pylint:disable=broad-except
-                        if hasattr(e, "ag_error_metadata"):
-                            raise e.ag_error_metadata.to_exception(e)
-                        else:
-                            raise
-
-                # Wrapping around a decorator allows checks like tf_inspect.getargspec
-                # to be accurate.
-                converted_func = tf_decorator.make_decorator(original_func, wrapper)
-                python_func = tf_decorator.rewrap(python_func, original_func,
-                                                  converted_func)
-
-            else:
-                _, original_func = tf_decorator.unwrap(python_func)
-
-            func_outputs = python_func(*func_args, **func_kwargs)
-
-            # invariant: `func_outputs` contains only Tensors, CompositeTensors,
-            # TensorArrays and `None`s.
-            func_outputs = nest.map_structure(convert, func_outputs,
-                                              expand_composites=True)
-
-            check_mutation(func_args_before, func_args, original_func)
-            check_mutation(func_kwargs_before, func_kwargs, original_func)
-        finally:
-            current_scope.set_use_resource(default_use_recource)
-
-        # Variables in `func_args`, `func_kwargs` should be explicit inputs
-        # to the function, not captured inputs.
-        graph_variables = list(func_graph._watched_variables)  # pylint: disable=protected-access
-        arg_variables = object_identity.ObjectIdentitySet()
-        inputs = []
-        for arg in (nest.flatten(func_args, expand_composites=True) +
-                    nest.flatten(func_kwargs, expand_composites=True)):
-            if isinstance(arg, resource_variable_ops.BaseResourceVariable):
-                # Even if an argument variable was not used in the function, we've
-                # already manually captured the resource Tensor when creating argument
-                # placeholders.
-                resource_placeholder = func_graph.pop_capture(arg.handle)
-                if resource_placeholder is None:
-                    continue
-                arg_variables.add(arg)
-                inputs.append(resource_placeholder)
-            elif isinstance(arg, ops.Tensor):
-                inputs.append(arg)
-        variables = [v for v in graph_variables if v not in arg_variables]
-        func_graph.inputs = (
-                inputs + func_graph.internal_captures + nest.flatten(
-            func_graph.deferred_internal_captures, expand_composites=True))
-        func_graph.structured_outputs = func_outputs
-        # Returning a closed-over tensor does not trigger convert_to_tensor.
-        func_graph.outputs.extend(
-            func_graph.capture(x)
-            for x in flatten(func_graph.structured_outputs)
-            if x is not None)
-
-        func_graph.variables = variables
-
-    if add_control_dependencies:
-        func_graph.control_outputs.extend(deps_control_manager.ops_which_must_run)
-        func_graph.collective_manager_ids_used = (
-            deps_control_manager.collective_manager_ids_used)
-
-    return func_graph
-
-
 def my_function_from_graph_def(graph_def, inputs, outputs, ref_captures):
     def _imports_graph_def():
         importer.import_graph_def(graph_def, name="")
@@ -667,4 +464,15 @@ def my_function_from_graph_def(graph_def, inputs, outputs, ref_captures):
     return wrapped_import.prune(
         nest.map_structure(import_graph.as_graph_element, inputs),
         nest.map_structure(import_graph.as_graph_element, outputs))
+
+def wrap_frozen_graph(graph_def, inputs, outputs):
+    def _imports_graph_def():
+        tf.compat.v1.import_graph_def(graph_def, name="")
+
+    wrapped_import = tf.compat.v1.wrap_function(_imports_graph_def, [])
+    import_graph = wrapped_import.graph
+
+    return wrapped_import.prune(
+        tf.nest.map_structure(import_graph.as_graph_element, inputs),
+        tf.nest.map_structure(import_graph.as_graph_element, outputs))
 

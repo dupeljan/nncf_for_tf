@@ -127,7 +127,7 @@ def resume_from_checkpoint(model, ckpt_path, train_steps):
 
 
 def train_test_export(config):
-    strategy = get_distribution_strategy(config)
+    strategy = None#get_distribution_strategy(config)
     strategy_scope = get_strategy_scope(strategy)
 
     # model, model_params = get_model(config.model,
@@ -143,6 +143,12 @@ def train_test_export(config):
     train_steps = train_builder.num_steps
     validation_steps = validation_builder.num_steps
 
+    keras_layer = hub.KerasLayer("https://tfhub.dev/google/imagenet/mobilenet_v2_100_224/classification/5",
+                               trainable=True, arguments=dict(batch_norm_momentum=0.997))
+    tf_f = tf.function(keras_layer.call)
+    concrete = tf_f.get_concrete_function(*[tf.TensorSpec((None, 224, 224, 3), tf.float32, name='input')])
+    from tensorflow.python.framework.convert_to_constants import convert_variables_to_constants_v2
+    frozen_model = convert_variables_to_constants_v2(concrete)
 
     with strategy_scope:
         class DummyLayer(tf.keras.layers.Layer):
@@ -162,14 +168,21 @@ def train_test_export(config):
         from op_insertion import NNCFWrapperCustom
         model = tf.keras.Sequential([
             tf.keras.layers.Input(shape=(224, 224, 3)),
-            tf.keras.layers.Flatten(),
             NNCFWrapperCustom(
-                DummyLayer(),
+                keras_layer, frozen_model
             ),
-            tf.keras.layers.Flatten(),
-            tf.keras.layers.Dense(1001),
             tf.keras.layers.Activation('softmax')
         ])
+        #model = tf.keras.Sequential([
+        #    tf.keras.layers.Input(shape=(224, 224, 3)),
+        #    tf.keras.layers.Flatten(),
+        #    NNCFWrapperCustom(
+        #        DummyLayer(),
+        #    ),
+        #    tf.keras.layers.Flatten(),
+        #    tf.keras.layers.Dense(1001),
+        #    tf.keras.layers.Activation('softmax')
+        #])
 
         if SAVE_MODEL_WORKAROUND:
             path = '/tmp/model.pb'
