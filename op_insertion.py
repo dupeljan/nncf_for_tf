@@ -31,7 +31,101 @@ from contrib import input_to_ops
 from tensorflow.python.framework.convert_to_constants import convert_variables_to_constants_v2
 from tensorflow.python.ops import init_ops
 
-OUT_GRAPH_PATH = '/tmp/graph_def_test.txt'
+
+
+class NNCFWrapperCustom(tf.keras.layers.Wrapper):
+    def __init__(self, layer, graph_def=None, concrete=None, **kwargs):
+        if layer is None:
+            raise ValueError('`layer` cannot be None.')
+
+        #if not isinstance(layer, tf.keras.layers.Layer) or \
+        #        isinstance(layer, tf.keras.Model):
+        #    raise ValueError(
+        #        '`layer` can only be a `tf.keras.layers.Layer` instance. '
+        #        'You passed an instance of type: {input}.'.format(
+        #            input=layer.__class__.__name__))
+
+        if 'name' not in kwargs:
+            kwargs['name'] = '{}_{}'.format('nncf_wrapper_custom', layer.name)
+
+        super().__init__(tf.keras.layers.Layer(), **kwargs)
+        self.callable = None
+        self.graph_def = graph_def
+        self.concrete = concrete
+        self.real_layer = layer
+
+    def get_custom_graph_fun(self, input_shape):
+        layer = tf.keras.layers.Conv1D(1, 10)
+
+        @tf.function
+        def f(inputs):
+            y = tf.expand_dims(inputs, 2)
+            y = layer(y)
+            return tf.reshape(y, (-1, y.shape[1]))
+
+        concrete = f.get_concrete_function(*[tf.TensorSpec(input_shape, tf.float32)])
+        return concrete, layer.variables
+
+    def build(self, input_shape=None):
+        self.layer.build(input_shape[1:])
+        if isinstance(self.real_layer, tf.keras.Model):
+            tf_f = tf.function(self.real_layer.call)
+            concrete = tf_f.get_concrete_function(*[tf.TensorSpec(input_shape, tf.float32)])
+            self.mirrored_variables = self.real_layer.variables
+        else:
+            gd = self.graph_def
+
+            concrete = make_new_func(gd,
+                                     self.concrete.graph.captures,
+                                     self.concrete.variables,
+                                     self.concrete.inputs,
+                                     self.concrete.outputs)
+
+            sorted_vars = get_sorted_on_captured_vals(concrete)
+            self.mirrored_variables = create_mirrored_variables(sorted_vars)
+        self.op_vars = []
+        # Add new op to layer
+        add_vars = False
+        if add_vars:
+            with concrete.graph.as_default() as g:
+                #target_node_name = [op for op in g.get_operations() if op.type == 'Mul'][0].name
+                target_node_name = [op for op in concrete.graph.get_operations() if 'conv2d' in op.type.lower()][0].name
+                weights_shape = insert_quant_op(g, target_node_name, create_add_op_with_weights)
+                self.output_tensor = g.outputs[0]
+
+            self.add_weight = tf.Variable(tf.fill(weights_shape[1:], 3.))
+            self.op_vars.append(self.add_weight)
+
+        else:
+            self.output_tensor = concrete.graph.outputs[0]
+
+        self.fn_train = concrete
+
+    def call(self, inputs, training=None):
+        replica_context = None
+        if tf.distribute.has_strategy():
+            replica_context = tf.distribute.get_replica_context()
+            if replica_context is not None:
+                replica_id = get_current_replica_id_as_int()
+                new_variables = []
+                new_captured = []
+                for var, input_tensor in zip(self.mirrored_variables + self.op_vars, self.fn_train.inputs[1:]):
+                    new_variables.append(var._get_replica(replica_id))
+                    new_captured.append((var._get_replica(replica_id).handle, input_tensor))
+
+        if not tf.distribute.has_strategy() or not replica_context:
+            new_variables = self.fn_train.graph.variables
+            new_captured = self.fn_train.graph.captures
+
+        fn_train = make_new_func(self.fn_train.graph.as_graph_def(),
+                                 new_captured,
+                                 new_variables,
+                                 self.fn_train.inputs,
+                                 [self.output_tensor])
+
+        return fn_train(inputs)
+
+
 def insert_softmax_in_graph(fn_train):
     with fn_train.graph.as_default() as g:
         softmax = tf.nn.softmax(g.outputs[0])
@@ -41,6 +135,7 @@ def insert_softmax_in_graph(fn_train):
                              g.variables,
                              fn_train.inputs,
                              [softmax])
+
 
 # Copyed from:tensorflow.contrib.quantize.python.common.DropStringPrefix tags/v1.15.0
 def RerouteTensor(t0, t1, can_modify=None):
@@ -114,85 +209,6 @@ def create_add_op_with_weights(input_tensor, graph):
     return output_tensor
 
 
-optimize_by_tf = True
-if optimize_by_tf:
-    from tensorflow.python.framework.convert_to_constants import _FunctionConverterData
-    from tensorflow.python.framework.convert_to_constants import _construct_concrete_function
-    from tensorflow.python.framework.convert_to_constants import _GraphDef
-else:
-    from convert_to_constants import _FunctionConverterData
-    from convert_to_constants import _construct_concrete_function
-    from convert_to_constants import _GraphDef
-
-
-def _replace_variables_by_constants(converter_data):
-    """Replaces variables by constants on a given graph.
-
-    Given a _ConverterData instance with converted variables in its tensor_data
-    field, create a new graph where the respective variables are replaced with the
-    converted constants.
-
-    Args:
-      converter_data: A pre-populated _ConverterData instance.
-
-    Returns:
-      The converted graph.
-    """
-    input_graph = _GraphDef(converter_data.graph_def)
-
-    for tensor_name, tensor_data in converter_data.tensor_data.items():
-        input_graph.nodes[tensor_name].convert_variable_to_constant(
-          None, tensor_data)
-
-    converted_graph = input_graph.converted_self().graph_def
-
-    converted_input_indices = {
-        t.index
-        for t in converter_data.tensor_data.values()
-        if t.index is not None
-    }
-
-    return converted_graph, converted_input_indices
-
-
-def optimize_func(func,
-                  lower_control_flow=True,
-                  aggressive_inlining=False):
-    """Replaces all the variables in a graph with constants of the same values.
-
-    TensorFlow 2.0 function for converting all Variable ops into Const ops holding
-    the same values. This makes it possible to describe the network fully with a
-    single GraphDef file, and allows the removal of a lot of ops related to
-    loading and saving the variables. This function runs Grappler's function
-    inlining optimization in order to return a single subgraph.
-
-    The current implementation only works for graphs that do not contain any
-    control flow or embedding related ops.
-
-    Args:
-      func: ConcreteFunction.
-      lower_control_flow: Boolean indicating whether or not to lower control flow
-        ops such as If and While. (default True)
-      aggressive_inlining: Boolean indicating whether or not to to aggressive
-        function inlining (might be unsafe if function has stateful ops, not
-        properly connected to control outputs). (default False)
-
-    Returns:
-      ConcreteFunction containing a simplified version of the original.
-    """
-
-    converter_data = _FunctionConverterData(
-        func=func,
-        lower_control_flow=lower_control_flow,
-        aggressive_inlining=aggressive_inlining)
-
-    output_graph_def, converted_input_indices = _replace_variables_by_constants(
-        converter_data=converter_data)
-
-    return _construct_concrete_function(func, output_graph_def,
-                                        converted_input_indices)
-
-
 def create_mirrored_variables(vars):
     retval = []
     for var in vars:
@@ -205,229 +221,12 @@ def create_mirrored_variables(vars):
 
 
 def get_sorted_on_captured_vals(concrete_fun):
-        sorted_vars = []
-        for value_tensor, graph_name in concrete_fun.graph.captures:
-            for layer_var in concrete_fun.variables:
-                if layer_var.handle is value_tensor:
-                    sorted_vars.append(layer_var)
-        return sorted_vars
-
-
-class NNCFWrapperCustom(tf.keras.layers.Wrapper):
-    def __init__(self, layer, graph_def, concrete, **kwargs):
-        if layer is None:
-            raise ValueError('`layer` cannot be None.')
-
-        #if not isinstance(layer, tf.keras.layers.Layer) or \
-        #        isinstance(layer, tf.keras.Model):
-        #    raise ValueError(
-        #        '`layer` can only be a `tf.keras.layers.Layer` instance. '
-        #        'You passed an instance of type: {input}.'.format(
-        #            input=layer.__class__.__name__))
-
-        if 'name' not in kwargs:
-            kwargs['name'] = '{}_{}'.format('nncf_wrapper_custom', layer.name)
-
-        super().__init__(tf.keras.layers.Layer(), **kwargs)
-        self.callable = None
-        self.graph_def = graph_def
-        self.concrete = concrete
-
-    def get_custom_graph_fun(self, input_shape):
-        layer = tf.keras.layers.Conv1D(1, 10)
-
-        @tf.function
-        def f(inputs):
-            y = tf.expand_dims(inputs, 2)
-            y = layer(y)
-            return tf.reshape(y, (-1, y.shape[1]))
-
-        concrete = f.get_concrete_function(*[tf.TensorSpec(input_shape, tf.float32)])
-        return concrete, layer.variables
-
-    def build(self, input_shape=None):
-        self.layer.build(input_shape[1:])
-        self.input_shape__ = input_shape
-        #self.tf_f = tf.function(self.layer.call)
-        #self.tf_f(tf.ones((1,) + input_shape[1:]))
-        #from google.protobuf import text_format
-        #proto_b = open(OUT_GRAPH_PATH, 'r').read()
-        #gd = tf.compat.v1.GraphDef()
-        #text_format.Merge(proto_b, gd)
-        #self.op_weight_shape = (3, 1, 1)
-        #self.op_weigths = tf.Variable(tf.ones(self.op_weight_shape))
-        gd = self.graph_def#self.tf_f.get_concrete_function(*[tf.TensorSpec(self.input_shape__, tf.float32)])
-
-        concrete = make_new_func(gd,
-                                 self.concrete.graph.captures,        # Wrap frozen graph to ConcreteFunctions
-                                 self.concrete.variables,        #concrete = wrap_frozen_graph(graph_def=concrete.graph.as_graph_def(),
-                                 self.concrete.inputs,        #                             inputs=[concrete.inputs[0].name],
-                                 self.concrete.outputs)        #                             outputs=[concrete.outputs[0].name])
-
-        sorted_vars = get_sorted_on_captured_vals(concrete)
-        self.mirrored_variables = create_mirrored_variables(sorted_vars)
-        #concrete = optimize_func(concrete)
-        # Create graph op which will be added to layer
-        #op_concrete, self.op_vars = self.get_custom_graph_fun(input_shape)
-        #new_op = \
-        #    make_new_func(op_concrete.graph.as_graph_def(),
-        #                  op_concrete.graph.captures,
-        #                  op_concrete.variables,
-        #                  op_concrete.inputs,
-        #                  op_concrete.outputs)
-
-        self.op_vars = []
-        # Add new op to layer
-        #add_var = tf.Variable(tf.ones(input_shape[1:]))
-        add_vars = False
-        if add_vars:
-            with concrete.graph.as_default() as g:
-                #target_node_name = [op for op in g.get_operations() if op.type == 'Mul'][0].name
-                target_node_name = [op for op in concrete.graph.get_operations() if 'conv2d' in op.type.lower()][0].name
-                weights_shape = insert_quant_op(g, target_node_name, create_add_op_with_weights)
-                self.output_tensor = g.outputs[0]
-
-            self.add_weight = tf.Variable(tf.fill(weights_shape[1:], 3.))
-            self.op_vars.append(self.add_weight)
-
-        else:
-            self.output_tensor = concrete.graph.outputs[0]
-
-        #with concrete.graph.as_default() as g:
-        #    tf.import_graph_def(new_op.graph.as_graph_def(),
-        #                        input_map={new_op.inputs[0].name: g.outputs[0]},
-        #                        return_elements=[new_op.outputs[0].name])
-        #
-        #from tensorflow.python.framework.func_graph import FuncGraph
-        #new_func_graph = FuncGraph('')
-        #with new_func_graph.as_default():
-        #    x = tf.compat.v1.placeholder(tf.float32, concrete.inputs[0].shape, 'inputs')
-        #    tf.import_graph_def(concrete.graph.as_graph_def(),
-        #                        input_map={concrete.inputs[0].name: x},
-        #                        return_elements=[new_op.outputs[0].name])
-        #concrete = make_new_func(concrete.graph.as_graph_def(),
-        #                         concrete.graph.captures,
-        #                         concrete.graph.variables,
-        #                         concrete.inputs,
-        #                         op_concrete.outputs)
-
-        #fn_train = make_new_func(concrete.graph.as_graph_def(),
-        #                         concrete.graph.captures,
-        #                         concrete.graph.variables,
-        #                         concrete.inputs,
-        #                         concrete.outputs)
-
-        #with open(OUT_GRAPH_PATH, 'w') as out:
-        #    out.write(str(concrete.graph.as_graph_def()))
-
-        #exit()
-        self.fn_train = concrete
-        #self.op_concrete = op_concrete
-        #self.fn_train_graph = g
-
-    def call(self, inputs, training=None):
-        #concrete = self.tf_f.get_concrete_function(*[tf.TensorSpec(self.input_shape__, tf.float32)])
-        # Before modifications
-        #tf.print('before ', concrete(tf.ones((1,) + self.input_shape__[1:])))
-        # Should be [[3 3 3 ... 3 3 3]]
-        #from google.protobuf import text_format
-        #proto_b = open(OUT_GRAPH_PATH, 'r').read()
-        #gd = tf.compat.v1.GraphDef()
-        #text_format.Merge(proto_b, gd)
-
-        #@tf.function
-        #def fn_train(inputs):
-        #    inputs = tf.convert_to_tensor(inputs, tf.float32)
-        #    input_map = {
-        #      'inputs:0': inputs,
-        #      'a:0': self.layer.a,
-        #      'b:0': self.layer.b
-        #    }
-        #    # Import the graph giving x as input and getting the output y
-        #    y = tf.graph_util.import_graph_def(
-        #        gd, input_map=input_map, return_elements=['Softmax:0'])[0]
-        #    return y
-
-        #fn_train = make_new_func(gd,
-        #                         concrete.graph.captures,
-        #                         concrete.graph.variables,
-        #                         concrete.inputs,
-        #                         concrete.outputs)
-        #func_graph = func_graph_from_func_graph('my_name', self.concrete,
-        #                                        3*[tf.TensorSpec(self.input_shape__, tf.float32)],
-        #                                        dict())#, func_graph=self.concrete.graph)
-        #fn_train = setup_only_concrete_fun(func_graph, self.call)
-
-
-        #fn_train = setup_concrete_fun(fn_train, self.call)
-        # After modifications
-        #tf.print('after ', fn_train(tf.ones((1,) + self.input_shape__[1:])))
-        # Should be [[[6.64328218e-06 6.64328218e-06 6.64328218e-06 ... 6.64328218e-06 6.64328218e-06 6.64328218e-06]]]
-        #fn_train = setup_concrete_fun(fn_train, self.layer.call)concrete = self.tf_f.get_concrete_function(*[tf.TensorSpec(self.input_shape__, tf.float32)])
-        #with concrete.graph.as_default() as g:
-        #    tf.nn.softmax(g.outputs[0])
-        #return self.tf_f(inputs)
-        replica_context = None
-        if tf.distribute.has_strategy():
-            replica_context = tf.distribute.get_replica_context()
-            if replica_context is not None:
-                replica_id = get_current_replica_id_as_int()
-                new_variables = []
-                new_captured = []
-                for var, input_tensor in zip(self.mirrored_variables + self.op_vars, self.fn_train.inputs[1:]):
-                    new_variables.append(var._get_replica(replica_id))
-                    new_captured.append((var._get_replica(replica_id).handle, input_tensor))
-
-        if not tf.distribute.has_strategy() or not replica_context:
-            new_variables = self.fn_train.graph.variables
-            new_captured = self.fn_train.graph.captures
-
-        fn_train = make_new_func(self.graph_def,
-                                 new_captured,
-                                 new_variables,
-                                 self.fn_train.inputs,
-                                 [self.output_tensor])
-
-        # Recreate variables
-        #func_graph = FuncGraph('')
-        #with func_graph.as_default():
-        #    outputs = fn_train(inputs)
-
-        #vars_id = sorted(get_concrete_vars_id(fn_train))
-        #captures_id = sorted(get_concrete_captured_id(fn_train))
-        #if vars_id != captures_id:
-        #    # It doesn't work here, but inside concrete function call vars_id changes somehow
-        #    print('Gradients will not leak because id\'s id is differs')
-
-        #fn_train.graph.variables = concrete.variables
-        return fn_train(inputs)
-
-
-#######
-# To make possible to get gradients out of concrete function
-# their vars id and captured id should be equal
-#######
-def get_concrete_vars_id(concrete):
-    res = []
-    for var in concrete._func_graph.variables:
-        res.append(var.handle._id)
-    return res
-
-
-def get_concrete_captured_id(concrete):
-    res = []
-    for var in concrete.captured_inputs:
-        res.append(var._id)
-    return res
-
-
-def _add_concrete_fun_resource_vars_to_tape(concrete):
-    for v in concrete._func_graph.variables:
-        add_resource_var_in_tape(v)
-
-
-def _check_concrete_fun_resource_vars_is_in_tape(concrete):
-    return check_tensor_in_tape(concrete.captured_inputs)
+    sorted_vars = []
+    for value_tensor, graph_name in concrete_fun.graph.captures:
+        for layer_var in concrete_fun.variables:
+            if layer_var.handle is value_tensor:
+                sorted_vars.append(layer_var)
+    return sorted_vars
 
 
 def make_new_func(output_graph_def, captures, variables, inputs, outputs):
@@ -471,4 +270,3 @@ def wrap_frozen_graph(graph_def, inputs, outputs):
     return wrapped_import.prune(
         tf.nest.map_structure(import_graph.as_graph_element, inputs),
         tf.nest.map_structure(import_graph.as_graph_element, outputs))
-
