@@ -204,6 +204,15 @@ def create_mirrored_variables(vars):
     return retval
 
 
+def get_sorted_on_captured_vals(concrete_fun):
+        sorted_vars = []
+        for value_tensor, graph_name in concrete_fun.graph.captures:
+            for layer_var in concrete_fun.variables:
+                if layer_var.handle is value_tensor:
+                    sorted_vars.append(layer_var)
+        return sorted_vars
+
+
 class NNCFWrapperCustom(tf.keras.layers.Wrapper):
     def __init__(self, layer, graph_def, concrete, **kwargs):
         if layer is None:
@@ -219,7 +228,7 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
         if 'name' not in kwargs:
             kwargs['name'] = '{}_{}'.format('nncf_wrapper_custom', layer.name)
 
-        super().__init__(layer, **kwargs)
+        super().__init__(tf.keras.layers.Layer(), **kwargs)
         self.callable = None
         self.graph_def = graph_def
         self.concrete = concrete
@@ -255,7 +264,8 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
                                  self.concrete.inputs,        #                             inputs=[concrete.inputs[0].name],
                                  self.concrete.outputs)        #                             outputs=[concrete.outputs[0].name])
 
-        self.mirrored_variables = create_mirrored_variables(concrete.variables)
+        sorted_vars = get_sorted_on_captured_vals(concrete)
+        self.mirrored_variables = create_mirrored_variables(sorted_vars)
         #concrete = optimize_func(concrete)
         # Create graph op which will be added to layer
         #op_concrete, self.op_vars = self.get_custom_graph_fun(input_shape)
@@ -372,7 +382,7 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
             new_variables = self.fn_train.graph.variables
             new_captured = self.fn_train.graph.captures
 
-        fn_train = make_new_func(self.fn_train.graph.as_graph_def(),
+        fn_train = make_new_func(self.graph_def,
                                  new_captured,
                                  new_variables,
                                  self.fn_train.inputs,
@@ -449,6 +459,7 @@ def my_function_from_graph_def(graph_def, inputs, outputs, ref_captures):
     return wrapped_import.prune(
         nest.map_structure(import_graph.as_graph_element, inputs),
         nest.map_structure(import_graph.as_graph_element, outputs))
+
 
 def wrap_frozen_graph(graph_def, inputs, outputs):
     def _imports_graph_def():

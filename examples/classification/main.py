@@ -127,7 +127,7 @@ def resume_from_checkpoint(model, ckpt_path, train_steps):
 
 
 def train_test_export(config):
-    strategy = None#get_distribution_strategy(config)
+    strategy = get_distribution_strategy(config)
     strategy_scope = get_strategy_scope(strategy)
 
     # model, model_params = get_model(config.model,
@@ -309,7 +309,7 @@ def main(argv):
     parser = get_argument_parser()
     config = get_config_from_argv(argv, parser)
 
-    config['eager_mode'] = True
+    #config['eager_mode'] = True
     serialize_config(config, config.log_dir)
 
     nncf_root = Path(__file__).absolute().parents[2]
