@@ -311,7 +311,7 @@ def main(argv):
     parser = get_argument_parser()
     config = get_config_from_argv(argv, parser)
 
-    config['eager_mode'] = True
+    #config['eager_mode'] = True
     serialize_config(config, config.log_dir)
 
     nncf_root = Path(__file__).absolute().parents[2]

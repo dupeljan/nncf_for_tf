@@ -4,7 +4,7 @@ import tensorflow as tf
 def second_dummy_model():
     inputs = tf.keras.Input((1000, ))
     x = tf.keras.layers.Dense(10)(inputs)
-    x = tf.keras.layers.Dense(1000)(x)
+    x = tf.keras.layers.Dense(1001)(x)
     return tf.keras.Model(inputs, x)
 
 

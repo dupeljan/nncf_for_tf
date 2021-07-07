@@ -32,6 +32,15 @@ from tensorflow.python.framework.convert_to_constants import convert_variables_t
 from tensorflow.python.ops import init_ops
 
 
+def name_without_replica_idx(name):
+            name = name.split(':')[0]
+            if 'replica' in name:
+                idx = int(name.split('_')[-1])
+                name = '/'.join(name.split('/')[:-1])
+            else:
+                idx = 0
+            return name, idx
+
 
 class NNCFWrapperCustom(tf.keras.layers.Wrapper):
     def __init__(self, layer, graph_def=None, concrete=None, **kwargs):
@@ -71,7 +80,34 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
         if isinstance(self.real_layer, tf.keras.Model):
             tf_f = tf.function(self.real_layer.call)
             concrete = tf_f.get_concrete_function(*[tf.TensorSpec(input_shape, tf.float32)])
-            self.mirrored_variables = self.real_layer.variables
+            self.bn_weights_names = set(['/'.join(v.name.split('/')[:-1]) for v in concrete.variables if 'replica' in v.name.lower()])
+            self.bn_weights = [v for v in concrete.variables if any(v.name.split(':')[0].startswith(x)
+                                                                    for x in self.bn_weights_names)]
+            #self.map = {v.name: v for v in self.real_layer.variables if  v.name in [v.name for v in self.bn_weights]}
+            num_replicas = tf.distribute.get_strategy().num_replicas_in_sync
+            #self.bn_weight_per_replica = {}
+
+            sorted_vars = get_sorted_on_captured_vals(concrete)
+            self.sorted_concrete_vars_names = [v.name for v in sorted_vars]
+            mirrored_vars_extended = []
+            for v_concrete in sorted_vars:
+                name, _ = name_without_replica_idx(v_concrete.name)
+                mirrored_vars_extended.extend([v for v in self.real_layer.variables
+                                               if name_without_replica_idx(v.name)[0] == name])
+
+            #for weight in self.bn_weights:
+            #    name, idx = name_without_replica_idx(weight.name)
+
+            #    struct = {
+            #        'w': weight,
+            #        'replica_id': idx
+            #    }
+            #    if not self.bn_weight_per_replica.get(name):
+            #        self.bn_weight_per_replica[name] = [struct]
+            #    else:
+            #        self.bn_weight_per_replica[name].append(struct)
+
+            self.mirrored_variables = mirrored_vars_extended
         else:
             gd = self.graph_def
 
@@ -82,7 +118,9 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
                                      self.concrete.outputs)
 
             sorted_vars = get_sorted_on_captured_vals(concrete)
+            self.sorted_concrete_vars_names = [v.name for v in sorted_vars]
             self.mirrored_variables = create_mirrored_variables(sorted_vars)
+
         self.op_vars = []
         # Add new op to layer
         add_vars = False
@@ -109,9 +147,15 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
                 replica_id = get_current_replica_id_as_int()
                 new_variables = []
                 new_captured = []
-                for var, input_tensor in zip(self.mirrored_variables + self.op_vars, self.fn_train.inputs[1:]):
-                    new_variables.append(var._get_replica(replica_id))
-                    new_captured.append((var._get_replica(replica_id).handle, input_tensor))
+                for concrete_var_name, var, input_tensor in zip(self.sorted_concrete_vars_names,
+                                                           self.mirrored_variables + self.op_vars,
+                                                           self.fn_train.inputs[1:]):
+                    name, idx = name_without_replica_idx(concrete_var_name)
+                    if name not in self.bn_weights_names:
+                        idx = replica_id
+
+                    new_variables.append(var._get_replica(idx))
+                    new_captured.append((var._get_replica(idx).handle, input_tensor))
 
         if not tf.distribute.has_strategy() or not replica_context:
             new_variables = self.fn_train.graph.variables
