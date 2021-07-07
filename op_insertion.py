@@ -4,6 +4,7 @@ import numpy as np
 
 from tensorflow.python.framework import importer
 from tensorflow.python.eager import wrap_function
+from itertools import zip_longest
 from tensorflow.python.pywrap_tfe import TFE_Py_TapeSetShouldRecordBackprop as \
    check_tensor_in_tape
 from tensorflow.python.ops.resource_variable_ops import variable_accessed as \
@@ -80,50 +81,35 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
         if isinstance(self.real_layer, tf.keras.Model):
             tf_f = tf.function(self.real_layer.call)
             concrete = tf_f.get_concrete_function(*[tf.TensorSpec(input_shape, tf.float32)])
-            self.bn_weights_names = set(['/'.join(v.name.split('/')[:-1]) for v in concrete.variables if 'replica' in v.name.lower()])
-            self.bn_weights = [v for v in concrete.variables if any(v.name.split(':')[0].startswith(x)
-                                                                    for x in self.bn_weights_names)]
-            #self.map = {v.name: v for v in self.real_layer.variables if  v.name in [v.name for v in self.bn_weights]}
-            num_replicas = tf.distribute.get_strategy().num_replicas_in_sync
-            #self.bn_weight_per_replica = {}
 
-            sorted_vars = get_sorted_on_captured_vals(concrete)
-            self.sorted_concrete_vars_names = [v.name for v in sorted_vars]
-            mirrored_vars_extended = []
-            for v_concrete in sorted_vars:
-                name, _ = name_without_replica_idx(v_concrete.name)
-                mirrored_vars_extended.extend([v for v in self.real_layer.variables
-                                               if name_without_replica_idx(v.name)[0] == name])
-
-            #for weight in self.bn_weights:
-            #    name, idx = name_without_replica_idx(weight.name)
-
-            #    struct = {
-            #        'w': weight,
-            #        'replica_id': idx
-            #    }
-            #    if not self.bn_weight_per_replica.get(name):
-            #        self.bn_weight_per_replica[name] = [struct]
-            #    else:
-            #        self.bn_weight_per_replica[name].append(struct)
-
-            self.mirrored_variables = mirrored_vars_extended
+            sorted_vars = get_sorted_on_captured_vars(concrete)
+            self.mirrored_variables = self.real_layer.variables
         else:
+            self.bn_weights_names = []
             gd = self.graph_def
-
             concrete = make_new_func(gd,
                                      self.concrete.graph.captures,
                                      self.concrete.variables,
                                      self.concrete.inputs,
                                      self.concrete.outputs)
 
-            sorted_vars = get_sorted_on_captured_vals(concrete)
-            self.sorted_concrete_vars_names = [v.name for v in sorted_vars]
+            sorted_vars = get_sorted_on_captured_vars(concrete)
             self.mirrored_variables = create_mirrored_variables(sorted_vars)
 
-        self.op_vars = []
+        # Save mapping for concrete per replica inputs
+        self.bn_weights_names = set(['/'.join(v.name.split('/')[:-1]) for v in concrete.variables if 'replica' in v.name.lower()])
+        self.sorted_concrete_vars_names = [v.name for v in sorted_vars]
+        mirrored_vars_extended = []
+        for v_concrete_name in self.sorted_concrete_vars_names:
+            name, _ = name_without_replica_idx(v_concrete_name)
+            mirrored_vars_extended.extend([v for v in self.mirrored_variables
+                                           if name_without_replica_idx(v.name)[0] == name])
+
+        self.mirrored_variables = mirrored_vars_extended
+
         # Add new op to layer
-        add_vars = False
+        self.op_vars = []
+        add_vars = True
         if add_vars:
             with concrete.graph.as_default() as g:
                 #target_node_name = [op for op in g.get_operations() if op.type == 'Mul'][0].name
@@ -147,12 +133,14 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
                 replica_id = get_current_replica_id_as_int()
                 new_variables = []
                 new_captured = []
-                for concrete_var_name, var, input_tensor in zip(self.sorted_concrete_vars_names,
-                                                           self.mirrored_variables + self.op_vars,
-                                                           self.fn_train.inputs[1:]):
-                    name, idx = name_without_replica_idx(concrete_var_name)
-                    if name not in self.bn_weights_names:
-                        idx = replica_id
+                for concrete_var_name, var, input_tensor in zip_longest(
+                                                                self.sorted_concrete_vars_names,
+                                                                self.mirrored_variables + self.op_vars,
+                                                                self.fn_train.inputs[1:]):
+                    if concrete_var_name:
+                        name, idx = name_without_replica_idx(concrete_var_name)
+                        if name not in self.bn_weights_names:
+                            idx = replica_id
 
                     new_variables.append(var._get_replica(idx))
                     new_captured.append((var._get_replica(idx).handle, input_tensor))
@@ -264,7 +252,7 @@ def create_mirrored_variables(vars):
     return retval
 
 
-def get_sorted_on_captured_vals(concrete_fun):
+def get_sorted_on_captured_vars(concrete_fun):
     sorted_vars = []
     for value_tensor, graph_name in concrete_fun.graph.captures:
         for layer_var in concrete_fun.variables:
