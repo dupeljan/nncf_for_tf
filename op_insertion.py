@@ -33,6 +33,9 @@ from tensorflow.python.framework.convert_to_constants import convert_variables_t
 from tensorflow.python.ops import init_ops
 
 
+DUMP_GRAPH = True
+
+
 def name_without_replica_idx(name):
             name = name.split(':')[0]
             if 'replica' in name:
@@ -114,16 +117,19 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
             with concrete.graph.as_default() as g:
                 #target_node_name = [op for op in g.get_operations() if op.type == 'Mul'][0].name
                 target_node_name = [op for op in concrete.graph.get_operations() if 'conv2d' in op.type.lower()][0].name
-                weights_shape = insert_quant_op(g, target_node_name, create_add_op_with_weights)
+                num_fq = insert_quant_op(g, target_node_name, create_add_op_with_weights)
                 self.output_tensor = g.outputs[0]
 
-            self.add_weight = tf.Variable(tf.fill(weights_shape[1:], 3.))
-            self.op_vars.append(self.add_weight)
+            for _ in range(num_fq):
+                self.op_vars.append(tf.Variable(3., dtype=tf.float32))
 
         else:
             self.output_tensor = concrete.graph.outputs[0]
 
         self.fn_train = concrete
+
+        if DUMP_GRAPH:
+            tf.io.write_graph(concrete.graph, '/tmp', 'mobilenetv2_sub_with_conv.pb')
 
     def call(self, inputs, training=None):
         replica_context = None
@@ -203,41 +209,42 @@ def insert_quant_op(graph, node_name, node_creation_fn):
     Args:
     * graph: TensorFlow graph
     * node_name: activation node's name
-    :return: shape of weight of the inserted operation.
+    :return: count of fq inserted into model
     """
 
     # locate the node & activation operation
-    #for op in graph.get_operations():
-    #    if node_name in [node.name for node in op.outputs]:
-    #        tf.logging.info('op: {} / inputs: {} / outputs: {}'.format(
-    #            op.name, [node.name for node in op.inputs], [node.name for node in op.outputs]))
-    #        conv_pred_act_tensor = op.outputs[0]
-    #        conv_pred_act_op = op
-    #        break
-    conv_pred_act_op = [op for op in graph.get_operations() if node_name == op.name][0]
-    conv_pred_act_tensor = conv_pred_act_op.outputs[0]
+    target_op = [op for op in graph.get_operations() if node_name == op.name][0]
+    pred_target_ops = []
+    for op in graph.get_operations():
+        if any([i in [x.name for x in target_op.inputs] for i in [x.name for x in op.outputs]]):
+            #tf.logging.info('op: {} / inputs: {} / outputs: {}'.format(
+            #    op.name, [node.name for node in op.inputs], [node.name for node in op.outputs]))
 
-    # re-route the graph to insert quantization operations
-    input_to_ops_map = input_to_ops.InputToOps(graph)
-    consumer_ops = input_to_ops_map.ConsumerOperations(conv_pred_act_op)
-    insert_op_output_tensor = node_creation_fn(conv_pred_act_tensor, graph)
-    #insertion_node_ouput_tensor = None  # Output of the inserting node
-    nb_update_inputs = RerouteTensor(insert_op_output_tensor, conv_pred_act_tensor, consumer_ops)
-    print(f'nb_update_inputs = {nb_update_inputs}')
-    return conv_pred_act_tensor.shape
+            pred_target_ops.append(op)
+            if len(pred_target_ops) == len(target_op.inputs):
+                break
+
+    for idx, pred_target_op in enumerate(pred_target_ops):
+        # re-route the graph to insert quantization operations
+        input_to_ops_map = input_to_ops.InputToOps(graph)
+        consumer_ops = input_to_ops_map.ConsumerOperations(pred_target_op)
+        insert_op_output_tensor = node_creation_fn(pred_target_op.outputs[0], idx)
+        #insertion_node_ouput_tensor = None  # Output of the inserting node
+        nb_update_inputs = RerouteTensor(insert_op_output_tensor, pred_target_op.outputs[0], consumer_ops)
+    return len(pred_target_ops)
 
 
-def create_add_op_with_weights(input_tensor, graph):
+def create_add_op_with_weights(input_tensor, idx):
     """Should be called in graph context"""
     with variable_scope.variable_scope('new_node'):
         #add_weight = tf.Variable(tf.ones(input_shape[1:]))
-        add_weight = variable_scope.get_variable(
-            'new_add',
-            shape=input_tensor.shape[1:],
+        scale = variable_scope.get_variable(
+            f'scale_{idx}',
+            shape=(),
             dtype=tf.float32,
-            initializer=tf.keras.initializers.Constant(3),#init_ops.constant_initializer(1),
+            initializer=tf.keras.initializers.Constant(6),#init_ops.constant_initializer(1),
             trainable=True)
-        output_tensor = tf.math.multiply(input_tensor, add_weight)
+        output_tensor = tf.quantization.fake_quant_with_min_max_vars(input_tensor, -scale, scale)
     return output_tensor
 
 
