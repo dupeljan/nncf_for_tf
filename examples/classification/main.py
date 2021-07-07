@@ -143,12 +143,12 @@ def train_test_export(config):
     train_steps = train_builder.num_steps
     validation_steps = validation_builder.num_steps
 
-    #keras_layer = hub.KerasLayer("https://tfhub.dev/google/imagenet/mobilenet_v2_100_224/classification/5",
-    #                           trainable=True, arguments=dict(batch_norm_momentum=0.997))
-    #tf_f = tf.function(keras_layer.call)
-    #concrete = tf_f.get_concrete_function(*[tf.TensorSpec((None, 224, 224, 3), tf.float32, name='input')])
-    #from tensorflow.python.framework.convert_to_constants import _run_inline_graph_optimization
-    #optimized_gd = _run_inline_graph_optimization(concrete, False, False)
+    keras_layer = hub.KerasLayer("https://tfhub.dev/google/imagenet/mobilenet_v2_100_224/classification/5",
+                               trainable=True, arguments=dict(batch_norm_momentum=0.997))
+    tf_f = tf.function(keras_layer.call)
+    concrete = tf_f.get_concrete_function(*[tf.TensorSpec((None, 224, 224, 3), tf.float32, name='input')])
+    from tensorflow.python.framework.convert_to_constants import _run_inline_graph_optimization
+    optimized_gd = _run_inline_graph_optimization(concrete, False, False)
 
     with strategy_scope:
         class DummyLayer(tf.keras.layers.Layer):
@@ -170,8 +170,8 @@ def train_test_export(config):
         model = tf.keras.Sequential([
             tf.keras.layers.Input(shape=(224, 224, 3)),
             NNCFWrapperCustom(
-                #keras_layer, optimized_gd, concrete
-                SubmoduledModel()
+                keras_layer, optimized_gd, concrete
+                #SubmoduledModel()
             ),
             tf.keras.layers.Activation('softmax')
         ])

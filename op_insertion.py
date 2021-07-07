@@ -65,7 +65,8 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
         self.callable = None
         self.graph_def = graph_def
         self.concrete = concrete
-        self.real_layer = layer
+        if not concrete:
+            self.real_layer = layer
 
     def get_custom_graph_fun(self, input_shape):
         layer = tf.keras.layers.Conv1D(1, 10)
@@ -81,14 +82,13 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
 
     def build(self, input_shape=None):
         self.layer.build(input_shape[1:])
-        if isinstance(self.real_layer, tf.keras.Model):
+        if self.graph_def is None:
             tf_f = tf.function(self.real_layer.call)
             concrete = tf_f.get_concrete_function(*[tf.TensorSpec(input_shape, tf.float32)])
 
             sorted_vars = get_sorted_on_captured_vars(concrete)
             self.mirrored_variables = self.real_layer.variables
         else:
-            self.bn_weights_names = []
             gd = self.graph_def
             concrete = make_new_func(gd,
                                      self.concrete.graph.captures,
@@ -102,13 +102,14 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
         # Save mapping for concrete per replica inputs
         self.bn_weights_names = set(['/'.join(v.name.split('/')[:-1]) for v in concrete.variables if 'replica' in v.name.lower()])
         self.sorted_concrete_vars_names = [v.name for v in sorted_vars]
-        mirrored_vars_extended = []
-        for v_concrete_name in self.sorted_concrete_vars_names:
-            name, _ = name_without_replica_idx(v_concrete_name)
-            mirrored_vars_extended.extend([v for v in self.mirrored_variables
-                                           if name_without_replica_idx(v.name)[0] == name])
+        if self.bn_weights_names:
+            mirrored_vars_extended = []
+            for v_concrete_name in self.sorted_concrete_vars_names:
+                name, _ = name_without_replica_idx(v_concrete_name)
+                mirrored_vars_extended.extend([v for v in self.mirrored_variables
+                                               if name_without_replica_idx(v.name)[0] == name])
 
-        self.mirrored_variables = mirrored_vars_extended
+            self.mirrored_variables = mirrored_vars_extended
 
         # Add new op to layer
         self.op_vars = []
