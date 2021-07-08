@@ -72,16 +72,41 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
                 self.op_vars = []
             add_vars = True
             if add_vars:
+                num_fq = 0
                 with concrete.graph.as_default() as g:
-                    # Trying to find first convolutional layer
-                    target_node_name = [op for op in concrete.graph.get_operations() if 'conv2d' in op.type.lower()][0].name
-                    num_fq = insert_quant_op(g, target_node_name, create_add_op_with_weights)
+                    # Detect all conv layers
+                    conv_ops = [op for op in concrete.graph.get_operations() if op.type == 'Conv2D']
+                    for conv in conv_ops:
+                        # Find second children of conv
+                        relu = [conv]
+                        i = 0
+                        while i < 2 and len(relu):
+                            relu = OperationUtils.get_children_ops(g, relu[0])
+                            i += 1
+                        relu = relu[0]
+                        # If it isn't relu - skip it
+                        if relu.type != 'Relu6':
+                            continue
+
+                        # Insert fq on conv weights
+                        num_fq += insert_op_before(g, conv, 1, create_add_op_with_weights, conv.name)
+                        # Insert fq after relu
+                        num_fq += insert_op_after(g, relu, 0, create_add_op_with_weights, relu.name)
+
                     model.output_tensor = g.outputs[0]
 
                 if not self.ops_vars_created:
                     for _ in range(num_fq):
-                        self.op_vars.append(tf.Variable(3., dtype=tf.float32))
+                        self.op_vars.append(tf.Variable(6., dtype=tf.float32))
                     self.ops_vars_created = True
+
+                # Make new concrete to update captured_inputs.
+                # This is needed for correct export.
+                concrete = make_new_func(concrete.graph.as_graph_def(),
+                                         concrete.graph.captures,
+                                         concrete.variables,
+                                         concrete.inputs,
+                                         concrete.outputs)
 
             else:
                 model.output_tensor = concrete.graph.outputs[0]
@@ -194,48 +219,50 @@ def RerouteTensor(t0, t1, can_modify=None):
 
 
 # Copied from pocketflow:learners.uniform_quantization_tf.utils.insert_quant_op
-def insert_quant_op(graph, node_name, node_creation_fn):
-    """Insert quantization operations to the specified activation node.
+def insert_op_before(graph, target_op, input_idx, node_creation_fn, name):
+    """Insert quantization operations before node on input_idx.
 
     Args:
     * graph: TensorFlow graph
     * node_name: activation node's name
     :return: count of fq inserted into model
     """
+    target_parent = None
+    output_idx = None
+    target_op_parents = OperationUtils.get_parent_ops(graph, target_op)
+    target_parent_output = target_op.inputs[input_idx]
+    for op in target_op_parents:
+        for i, outputs in enumerate(op.outputs):
+            if outputs.name == target_parent_output.name:
+                target_parent = op
+                output_idx = i
 
-    # locate the target node
-    target_op = [op for op in graph.get_operations() if node_name == op.name][0]
-    pred_target_ops = []
-    # Locate all input ops of target op
-    for op in graph.get_operations():
-        if any([i in [x.name for x in target_op.inputs] for i in [x.name for x in op.outputs]]):
-            pred_target_ops.append(op)
-            if len(pred_target_ops) == len(target_op.inputs):
-                break
+    if target_parent is None or output_idx is None:
+        raise RuntimeError(f'Can\'t find node parent, node name: {target_op.name}')
 
-    for idx, pred_target_op in enumerate(pred_target_ops):
-        # re-route the graph to insert quantization operations
-        input_to_ops_map = input_to_ops.InputToOps(graph)
-        consumer_ops = input_to_ops_map.ConsumerOperations(pred_target_op)
-        insert_op_output_tensor = node_creation_fn(pred_target_op.outputs[0], idx)
-        RerouteTensor(insert_op_output_tensor, pred_target_op.outputs[0], consumer_ops)
-    return len(pred_target_ops)
+    # re-route the graph to insert quantization operations
+    return insert_op_after(graph, target_parent, output_idx, node_creation_fn, name)
 
 
-def create_add_op_with_weights(input_tensor, idx):
+def insert_op_after(graph, target_parent, output_index, node_creation_fn, name):
+    input_to_ops_map = input_to_ops.InputToOps(graph)
+    consumer_ops = input_to_ops_map.ConsumerOperations(target_parent)
+    insert_op_output_tensor = node_creation_fn(target_parent.outputs[output_index], name)
+    RerouteTensor(insert_op_output_tensor, target_parent.outputs[output_index], consumer_ops)
+    return 1
+
+
+def create_add_op_with_weights(input_tensor, name):
     """Should be called in graph context"""
     with variable_scope.variable_scope('new_node'):
         scale = variable_scope.get_variable(
-            f'scale_{idx}',
+            f'scale_{name}',
             shape=(),
             dtype=tf.float32,
             initializer=tf.keras.initializers.Constant(6),#init_ops.constant_initializer(1),
             trainable=True)
         output_tensor = tf.quantization.fake_quant_with_min_max_vars(input_tensor, -scale, scale)
     return output_tensor
-
-
-
 
 
 def get_sorted_on_captured_vars(concrete_fun):
@@ -288,3 +315,27 @@ def wrap_frozen_graph(graph_def, inputs, outputs):
     return wrapped_import.prune(
         tf.nest.map_structure(import_graph.as_graph_element, inputs),
         tf.nest.map_structure(import_graph.as_graph_element, outputs))
+
+
+class OperationUtils:
+    @staticmethod
+    def get_parent_ops(graph, target_op):
+        retval = []
+        target_op_inputs = [x.name for x in target_op.inputs]
+        for op in graph.get_operations():
+            if any([i in [x.name for x in op.outputs] for i in target_op_inputs]):
+                retval.append(op)
+                if len(retval) == len(target_op.inputs):
+                    break
+        return retval
+
+    @staticmethod
+    def get_children_ops(graph, target_op):
+        retval = []
+        target_op_outputs = [x.name for x in target_op.outputs]
+        for op in graph.get_operations():
+            if any([out in [x.name for x in op.inputs] for out in target_op_outputs]):
+                retval.append(op)
+                if len(retval) == len(target_op.outputs):
+                    break
+        return retval
