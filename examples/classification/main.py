@@ -21,7 +21,9 @@ from examples.common.logger import logger
 from examples.common.distributed import get_distribution_strategy, get_strategy_scope
 from examples.common.utils import serialize_config, create_code_snapshot, configure_paths, get_saving_parameters
 from examples.common.argparser import get_common_argument_parser
-from examples.common.model_loader import get_model
+from examples.classification.test_models import get_KerasLayer_model
+from examples.classification.test_models import get_model
+from examples.classification.test_models import ModelType
 from examples.common.optimizer import build_optimizer
 from examples.common.scheduler import build_scheduler
 from examples.common.datasets.builder import DatasetBuilder
@@ -34,6 +36,7 @@ import tensorflow_hub as hub
 
 SAVE_MODEL_WORKAROUND = False
 
+
 def get_argument_parser():
     parser = get_common_argument_parser()
     parser.add_argument(
@@ -44,6 +47,11 @@ def get_argument_parser():
     )
     parser.add_argument('--test-every-n-epochs', default=1, type=int,
                         help='Enables running validation every given number of epochs')
+    parser.add_argument(
+        "--model_type",
+        choices=[ModelType.KerasLayer, ModelType.FuncModel, ModelType.SubClassModel],
+        default=ModelType.FuncModel,
+        help="Type of mobilenetV2 model which should be quantized.")
     return parser
 
 
@@ -130,8 +138,6 @@ def train_test_export(config):
     strategy = get_distribution_strategy(config)
     strategy_scope = get_strategy_scope(strategy)
 
-    # model, model_params = get_model(config.model,
-    #                                 pretrained=config.get('pretrained', True))
 
     builders = get_dataset_builders(config, strategy)
     datasets = [builder.build() for builder in builders]
@@ -143,65 +149,29 @@ def train_test_export(config):
     train_steps = train_builder.num_steps
     validation_steps = validation_builder.num_steps
 
-    keras_layer = hub.KerasLayer("https://tfhub.dev/google/imagenet/mobilenet_v2_100_224/classification/5",
-                               trainable=True, arguments=dict(batch_norm_momentum=0.997))
-    tf_f = tf.function(keras_layer.call)
-    concrete = tf_f.get_concrete_function(*[tf.TensorSpec((None, 224, 224, 3), tf.float32, name='input')])
-    from tensorflow.python.framework.convert_to_constants import _run_inline_graph_optimization
-    optimized_gd = _run_inline_graph_optimization(concrete, False, False)
+    if config.model_type == ModelType.KerasLayer:
+        args = get_KerasLayer_model()
+    else:
+        args = None
 
     with strategy_scope:
-        class DummyLayer(tf.keras.layers.Layer):
-            def build(self, input_shape):
-                self.a = self.add_weight('multiplyer', input_shape, tf.float32,
-                                         tf.keras.initializers.Constant(tf.constant(2.)))
-                self.b = self.add_weight('bias', input_shape, tf.float32,
-                                         tf.keras.initializers.Constant(tf.constant(1.)))
-
-            @staticmethod
-            def train_fn(inputs, a, b):
-                return a * inputs + b
-
-            def call(self, inputs, **kwargs):
-                return self.train_fn(inputs, self.a, self.b)
-
         from op_insertion import NNCFWrapperCustom
-        from examples.classification.submodule_model import SubmoduledModel
+        if not args:
+            args = (get_model(config.model_type),)
+
         model = tf.keras.Sequential([
             tf.keras.layers.Input(shape=(224, 224, 3)),
             NNCFWrapperCustom(
-                keras_layer, optimized_gd, concrete
-                #SubmoduledModel()
+                *args
             ),
             tf.keras.layers.Activation('softmax')
         ])
-        #model = tf.keras.Sequential([
-        #    tf.keras.layers.Input(shape=(224, 224, 3)),
-        #    tf.keras.layers.Flatten(),
-        #    NNCFWrapperCustom(
-        #        DummyLayer(),
-        #    ),
-        #    tf.keras.layers.Flatten(),
-        #    tf.keras.layers.Dense(1001),
-        #    tf.keras.layers.Activation('softmax')
-        #])
 
         if SAVE_MODEL_WORKAROUND:
             path = '/tmp/model.pb'
             model.save(path, save_format='tf')
             model = tf.keras.models.load_model(path)
 
-        #input = tf.random.uniform((1, 224, 224, 3))
-        #output = model(input)
-        #model.build([None, 224, 224, 3])
-
-    #with strategy_scope:sdfas
-        #    model = model(**model_params)
-
-        # model = tf.keras.Sequential([
-        #     tf.keras.layers.Input(shape=(224, 224, 3)),
-        #     hub.KerasLayer("/home/alexsu/work/tmp/")
-        # ])
 
         compression_ctrl, compress_model = create_compressed_model(model, config)
         compression_callbacks = create_compression_callbacks(compression_ctrl, config.log_dir)
@@ -277,9 +247,6 @@ def train_test_export(config):
 
 
 def export(config):
-    # model, model_params = get_model(config.model,
-    #                                 pretrained=config.get('pretrained', True))
-    # model = model(**model_params)
     model = tf.keras.Sequential(
         hub.KerasLayer("https://tfhub.dev/google/imagenet/mobilenet_v2_100_224/classification/4",
                        trainable=True))
@@ -304,16 +271,14 @@ def export(config):
 
 
 def main(argv):
-    #physical_devices = tf.config.list_physical_devices('GPU')
-    #for device in physical_devices:
-    #    tf.config.experimental.set_memory_growth(device, True)
-
     parser = get_argument_parser()
     config = get_config_from_argv(argv, parser)
 
     #config['eager_mode'] = True
     serialize_config(config, config.log_dir)
-
+    print('*'*50)
+    print(f'Using model type: {config.model_type}')
+    print('*'*50)
     nncf_root = Path(__file__).absolute().parents[2]
     create_code_snapshot(nncf_root, osp.join(config.log_dir, "snapshot.tar.gz"))
     if 'train' in config.mode or 'test' in config.mode:
@@ -323,7 +288,4 @@ def main(argv):
 
 
 if __name__ == '__main__':
-    #devices = tf.config.list_physical_devices('GPU')
-    #for device in devices:
-    #    tf.config.experimental.set_memory_growth(device, True)
     main(sys.argv[1:])

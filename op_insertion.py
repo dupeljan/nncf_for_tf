@@ -1,49 +1,16 @@
 import tensorflow as tf
-import numpy as np
-
 
 from tensorflow.python.framework import importer
 from tensorflow.python.eager import wrap_function
-from itertools import zip_longest
-from tensorflow.python.pywrap_tfe import TFE_Py_TapeSetShouldRecordBackprop as \
-   check_tensor_in_tape
-from tensorflow.python.ops.resource_variable_ops import variable_accessed as \
-    add_resource_var_in_tape
-
 from tensorflow.python.distribute.values_util import get_current_replica_id_as_int
-from tensorflow.python.framework import auto_control_deps
-from tensorflow.python.framework import ops
-from tensorflow.python.ops import array_ops
-from tensorflow.python.ops import resource_variable_ops
-from tensorflow.python.ops import tensor_array_ops
 from tensorflow.python.ops import variable_scope
 from tensorflow.python.util import nest
-from tensorflow.python.util import object_identity
-from tensorflow.python.util import tf_decorator
-from tensorflow.python.framework.func_graph import FuncGraph
-from tensorflow.python.framework.func_graph import _get_defun_inputs_from_args
-from tensorflow.python.framework.func_graph import _get_defun_inputs_from_kwargs
-from tensorflow.python.framework.func_graph import convert_structure_to_signature
-from tensorflow.python.framework.func_graph import flatten
-from tensorflow.python.framework.func_graph import check_mutation
-import graph_editor as ge
+from itertools import zip_longest
 
 from contrib import input_to_ops
-from tensorflow.python.framework.convert_to_constants import convert_variables_to_constants_v2
-from tensorflow.python.ops import init_ops
 
 
-DUMP_GRAPH = True
-
-
-def name_without_replica_idx(name):
-            name = name.split(':')[0]
-            if 'replica' in name:
-                idx = int(name.split('_')[-1])
-                name = '/'.join(name.split('/')[:-1])
-            else:
-                idx = 0
-            return name, idx
+DUMP_GRAPH = False
 
 
 class NNCFWrapperCustom(tf.keras.layers.Wrapper):
@@ -51,34 +18,15 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
         if layer is None:
             raise ValueError('`layer` cannot be None.')
 
-        #if not isinstance(layer, tf.keras.layers.Layer) or \
-        #        isinstance(layer, tf.keras.Model):
-        #    raise ValueError(
-        #        '`layer` can only be a `tf.keras.layers.Layer` instance. '
-        #        'You passed an instance of type: {input}.'.format(
-        #            input=layer.__class__.__name__))
-
         if 'name' not in kwargs:
             kwargs['name'] = '{}_{}'.format('nncf_wrapper_custom', layer.name)
 
-        super().__init__(tf.keras.layers.Layer(), **kwargs)
+        super().__init__(tf.keras.layers.Layer(), **kwargs) # For testing
         self.callable = None
         self.graph_def = graph_def
         self.concrete = concrete
         if not concrete:
             self.real_layer = layer
-
-    def get_custom_graph_fun(self, input_shape):
-        layer = tf.keras.layers.Conv1D(1, 10)
-
-        @tf.function
-        def f(inputs):
-            y = tf.expand_dims(inputs, 2)
-            y = layer(y)
-            return tf.reshape(y, (-1, y.shape[1]))
-
-        concrete = f.get_concrete_function(*[tf.TensorSpec(input_shape, tf.float32)])
-        return concrete, layer.variables
 
     def build(self, input_shape=None):
         self.layer.build(input_shape[1:])
@@ -116,7 +64,7 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
         add_vars = True
         if add_vars:
             with concrete.graph.as_default() as g:
-                #target_node_name = [op for op in g.get_operations() if op.type == 'Mul'][0].name
+                # Trying to find first convolutional layer
                 target_node_name = [op for op in concrete.graph.get_operations() if 'conv2d' in op.type.lower()][0].name
                 num_fq = insert_quant_op(g, target_node_name, create_add_op_with_weights)
                 self.output_tensor = g.outputs[0]
@@ -137,6 +85,7 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
         if tf.distribute.has_strategy():
             replica_context = tf.distribute.get_replica_context()
             if replica_context is not None:
+                # Map correspondent replica of MirroredVariable to replica concrete function
                 replica_id = get_current_replica_id_as_int()
                 new_variables = []
                 new_captured = []
@@ -145,6 +94,8 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
                                                                 self.mirrored_variables + self.op_vars,
                                                                 self.fn_train.inputs[1:]):
                     if concrete_var_name:
+                        # Check if some variables from other replicas are needed for
+                        # concrete function call
                         name, idx = name_without_replica_idx(concrete_var_name)
                         if name not in self.bn_weights_names:
                             idx = replica_id
@@ -153,6 +104,8 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
                     new_captured.append((var._get_replica(idx).handle, input_tensor))
 
         if not tf.distribute.has_strategy() or not replica_context:
+            # If there is no distribute strategy or in compile time
+            # don't change vars
             new_variables = self.fn_train.graph.variables
             new_captured = self.fn_train.graph.captures
 
@@ -163,6 +116,16 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
                                  [self.output_tensor])
 
         return fn_train(inputs)
+
+
+def name_without_replica_idx(name):
+    name = name.split(':')[0]
+    if 'replica' in name:
+        idx = int(name.split('_')[-1])
+        name = '/'.join(name.split('/')[:-1])
+    else:
+        idx = 0
+    return name, idx
 
 
 def insert_softmax_in_graph(fn_train):
@@ -213,14 +176,12 @@ def insert_quant_op(graph, node_name, node_creation_fn):
     :return: count of fq inserted into model
     """
 
-    # locate the node & activation operation
+    # locate the target node
     target_op = [op for op in graph.get_operations() if node_name == op.name][0]
     pred_target_ops = []
+    # Locate all input ops of target op
     for op in graph.get_operations():
         if any([i in [x.name for x in target_op.inputs] for i in [x.name for x in op.outputs]]):
-            #tf.logging.info('op: {} / inputs: {} / outputs: {}'.format(
-            #    op.name, [node.name for node in op.inputs], [node.name for node in op.outputs]))
-
             pred_target_ops.append(op)
             if len(pred_target_ops) == len(target_op.inputs):
                 break
@@ -230,15 +191,13 @@ def insert_quant_op(graph, node_name, node_creation_fn):
         input_to_ops_map = input_to_ops.InputToOps(graph)
         consumer_ops = input_to_ops_map.ConsumerOperations(pred_target_op)
         insert_op_output_tensor = node_creation_fn(pred_target_op.outputs[0], idx)
-        #insertion_node_ouput_tensor = None  # Output of the inserting node
-        nb_update_inputs = RerouteTensor(insert_op_output_tensor, pred_target_op.outputs[0], consumer_ops)
+        RerouteTensor(insert_op_output_tensor, pred_target_op.outputs[0], consumer_ops)
     return len(pred_target_ops)
 
 
 def create_add_op_with_weights(input_tensor, idx):
     """Should be called in graph context"""
     with variable_scope.variable_scope('new_node'):
-        #add_weight = tf.Variable(tf.ones(input_shape[1:]))
         scale = variable_scope.get_variable(
             f'scale_{idx}',
             shape=(),
