@@ -1,6 +1,8 @@
 import tensorflow as tf
 import tensorflow_hub as hub
 
+from tensorflow.python.framework.convert_to_constants import _run_inline_graph_optimization
+
 
 class ModelType:
     KerasLayer = 'KerasLayerModel'
@@ -34,28 +36,34 @@ def get_func_model():
     x = mobilenet(input)
     x = tf.keras.layers.Flatten()(x)
     x = tf.keras.layers.Dense(1001)(x)
-    return tf.keras.Model(input, x)
+    return (tf.keras.Model(input, x),)
 
 
 def get_submoduled_model():
-    return SubclassModel()
+    return (SubclassModel(),)
 
 
 def get_KerasLayer_model():
     """
 
-    :return : (KerasLayer instance, non optimized concrete function,
-               optimized graph_def)
+    :return : 2 * (KerasLayer instance, non optimized concrete function,
+               optimized graph_def) first one is trainable and second one is not
     """
-    assert not tf.distribute.has_strategy(), 'Can\'t modify KerasLayer graph created in cross replica mode'
+    retval = []
+    for trainable in [True, False]:
+        assert not tf.distribute.has_strategy(), 'Can\'t modify KerasLayer graph created in cross replica mode'
 
-    keras_layer = hub.KerasLayer("https://tfhub.dev/google/imagenet/mobilenet_v2_100_224/classification/5",
-                                 trainable=True, arguments=dict(batch_norm_momentum=0.997))
-    tf_f = tf.function(keras_layer.call)
-    concrete = tf_f.get_concrete_function(*[tf.TensorSpec((None, 224, 224, 3), tf.float32, name='input')])
-    from tensorflow.python.framework.convert_to_constants import _run_inline_graph_optimization
-    optimized_gd = _run_inline_graph_optimization(concrete, False, False)
-    return keras_layer, optimized_gd, concrete
+        keras_layer = hub.KerasLayer("https://tfhub.dev/google/imagenet/mobilenet_v2_100_224/classification/5",
+                                     trainable=trainable, arguments=dict(batch_norm_momentum=0.997))
+        tf_f = tf.function(keras_layer.call)
+        concrete = tf_f.get_concrete_function(*[tf.TensorSpec((None, 224, 224, 3), tf.float32, name='input')])
+        optimized_gd = _run_inline_graph_optimization(concrete, False, False)
+        retval.append({
+                'layer': keras_layer,
+                'graph_def': optimized_gd,
+                'concrete_function': concrete,
+            })
+    return retval
 
 
 def get_model(model_type: str):

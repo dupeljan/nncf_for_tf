@@ -8,79 +8,91 @@ from tensorflow.python.util import nest
 from itertools import zip_longest
 
 from contrib import input_to_ops
+from examples.classification.test_models import ModelType
 
 
 DUMP_GRAPH = False
 
 
+class NNCFCallableGraph(object):
+    pass
+
+
 class NNCFWrapperCustom(tf.keras.layers.Wrapper):
-    def __init__(self, layer, graph_def=None, concrete=None, **kwargs):
-        if layer is None:
-            raise ValueError('`layer` cannot be None.')
+    def __init__(self, trainable_model, eval_model=None, **kwargs):
+        super().__init__(tf.keras.layers.Layer(), **kwargs)
+        self.model_type = ModelType.FuncModel
+        self.trainable_model = NNCFCallableGraph()
+        self.eval_model = NNCFCallableGraph()
+        self.mirrored_vars_created = False
+        self.ops_vars_created = False
+        if isinstance(trainable_model, dict):
+            self.model_type = ModelType.KerasLayer
 
-        if 'name' not in kwargs:
-            kwargs['name'] = '{}_{}'.format('nncf_wrapper_custom', layer.name)
-
-        super().__init__(tf.keras.layers.Layer(), **kwargs) # For testing
-        self.callable = None
-        self.graph_def = graph_def
-        self.concrete = concrete
-        if not concrete:
-            self.real_layer = layer
+            self.trainable_model.graph_def = trainable_model['graph_def']
+            self.trainable_model.concrete = trainable_model['concrete_function']
+            self.eval_model.graph_def = eval_model['graph_def']
+            self.eval_model.concrete = eval_model['concrete_function']
+        else:
+            self.trainable_model.orig_model = trainable_model
+            self.eval_model.orig_model = trainable_model
 
     def build(self, input_shape=None):
-        self.layer.build(input_shape[1:])
-        if self.graph_def is None:
-            tf_f = tf.function(self.real_layer.call)
-            concrete = tf_f.get_concrete_function(*[tf.TensorSpec(input_shape, tf.float32)])
+        for training, model in zip([True, False], [self.trainable_model, self.eval_model]):
+            if self.model_type != ModelType.KerasLayer:
+                tf_f = tf.function(lambda x: model.orig_model.call(x, training=training))
+                concrete = tf_f.get_concrete_function(*[tf.TensorSpec(input_shape, tf.float32)])
 
-            sorted_vars = get_sorted_on_captured_vars(concrete)
-            self.mirrored_variables = self.real_layer.variables
-        else:
-            gd = self.graph_def
-            concrete = make_new_func(gd,
-                                     self.concrete.graph.captures,
-                                     self.concrete.variables,
-                                     self.concrete.inputs,
-                                     self.concrete.outputs)
+                sorted_vars = get_sorted_on_captured_vars(concrete)
+                model.mirrored_variables = model.orig_model.variables
+            else:
+                concrete = make_new_func(model.graph_def,
+                                         model.concrete.graph.captures,
+                                         model.concrete.variables,
+                                         model.concrete.inputs,
+                                         model.concrete.outputs)
 
-            sorted_vars = get_sorted_on_captured_vars(concrete)
-            self.mirrored_variables = create_mirrored_variables(sorted_vars)
+                sorted_vars = get_sorted_on_captured_vars(concrete)
+                model.mirrored_variables = self.create_mirrored_variables(sorted_vars)
 
-        # Save mapping for concrete per replica inputs
-        self.bn_weights_names = set(['/'.join(v.name.split('/')[:-1]) for v in concrete.variables if 'replica' in v.name.lower()])
-        self.sorted_concrete_vars_names = [v.name for v in sorted_vars]
-        if self.bn_weights_names:
-            mirrored_vars_extended = []
-            for v_concrete_name in self.sorted_concrete_vars_names:
-                name, _ = name_without_replica_idx(v_concrete_name)
-                mirrored_vars_extended.extend([v for v in self.mirrored_variables
-                                               if name_without_replica_idx(v.name)[0] == name])
+            # Save mapping for concrete per replica inputs
+            model.bn_weights_names = set(['/'.join(v.name.split('/')[:-1]) for v in concrete.variables if 'replica' in v.name.lower()])
+            model.sorted_concrete_vars_names = [v.name for v in sorted_vars]
+            if model.bn_weights_names:
+                mirrored_vars_extended = []
+                for v_concrete_name in model.sorted_concrete_vars_names:
+                    name, _ = name_without_replica_idx(v_concrete_name)
+                    mirrored_vars_extended.extend([v for v in model.mirrored_variables
+                                                   if name_without_replica_idx(v.name)[0] == name])
 
-            self.mirrored_variables = mirrored_vars_extended
+                model.mirrored_variables = mirrored_vars_extended
 
-        # Add new op to layer
-        self.op_vars = []
-        add_vars = True
-        if add_vars:
-            with concrete.graph.as_default() as g:
-                # Trying to find first convolutional layer
-                target_node_name = [op for op in concrete.graph.get_operations() if 'conv2d' in op.type.lower()][0].name
-                num_fq = insert_quant_op(g, target_node_name, create_add_op_with_weights)
-                self.output_tensor = g.outputs[0]
+            # Add new op to layer
+            if not self.ops_vars_created:
+                self.op_vars = []
+            add_vars = True
+            if add_vars:
+                with concrete.graph.as_default() as g:
+                    # Trying to find first convolutional layer
+                    target_node_name = [op for op in concrete.graph.get_operations() if 'conv2d' in op.type.lower()][0].name
+                    num_fq = insert_quant_op(g, target_node_name, create_add_op_with_weights)
+                    model.output_tensor = g.outputs[0]
 
-            for _ in range(num_fq):
-                self.op_vars.append(tf.Variable(3., dtype=tf.float32))
+                if not self.ops_vars_created:
+                    for _ in range(num_fq):
+                        self.op_vars.append(tf.Variable(3., dtype=tf.float32))
+                    self.ops_vars_created = True
 
-        else:
-            self.output_tensor = concrete.graph.outputs[0]
+            else:
+                model.output_tensor = concrete.graph.outputs[0]
 
-        self.fn_train = concrete
+            model.fn_train = concrete
 
         if DUMP_GRAPH:
             tf.io.write_graph(concrete.graph, '/tmp', 'mobilenetv2_sub_with_conv.pb')
 
     def call(self, inputs, training=None):
+        model_obj = self.trainable_model if training else self.eval_model
         replica_context = None
         if tf.distribute.has_strategy():
             replica_context = tf.distribute.get_replica_context()
@@ -90,14 +102,14 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
                 new_variables = []
                 new_captured = []
                 for concrete_var_name, var, input_tensor in zip_longest(
-                                                                self.sorted_concrete_vars_names,
-                                                                self.mirrored_variables + self.op_vars,
-                                                                self.fn_train.inputs[1:]):
+                                                                model_obj.sorted_concrete_vars_names,
+                                                                model_obj.mirrored_variables + self.op_vars,
+                                                                model_obj.fn_train.inputs[1:]):
                     if concrete_var_name:
                         # Check if some variables from other replicas are needed for
                         # concrete function call
                         name, idx = name_without_replica_idx(concrete_var_name)
-                        if name not in self.bn_weights_names:
+                        if name not in model_obj.bn_weights_names:
                             idx = replica_id
 
                     new_variables.append(var._get_replica(idx))
@@ -106,17 +118,32 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
         if not tf.distribute.has_strategy() or not replica_context:
             # If there is no distribute strategy or in compile time
             # don't change vars
-            new_variables = self.fn_train.graph.variables
-            new_captured = self.fn_train.graph.captures
+            new_variables = model_obj.fn_train.graph.variables
+            new_captured = model_obj.fn_train.graph.captures
 
-        fn_train = make_new_func(self.fn_train.graph.as_graph_def(),
+        fn_train = make_new_func(model_obj.fn_train.graph.as_graph_def(),
                                  new_captured,
                                  new_variables,
-                                 self.fn_train.inputs,
-                                 [self.output_tensor])
+                                 model_obj.fn_train.inputs,
+                                 [model_obj.output_tensor])
 
         return fn_train(inputs)
 
+    def create_mirrored_variables(self, vars):
+        if not self.mirrored_vars_created:
+            retval = []
+            for var in vars:
+                mirrored_var = tf.Variable(var.numpy(),
+                                           trainable=var.trainable,
+                                           dtype=var.dtype,
+                                           name=var.name.split(':')[0] + '_mirrored')
+                retval.append(mirrored_var)
+            self.mirrored_vars_created = True
+            self.mirrored_vars_cache = retval
+        else:
+            retval = self.mirrored_vars_cache
+
+        return retval
 
 def name_without_replica_idx(name):
     name = name.split(':')[0]
@@ -208,15 +235,7 @@ def create_add_op_with_weights(input_tensor, idx):
     return output_tensor
 
 
-def create_mirrored_variables(vars):
-    retval = []
-    for var in vars:
-        mirrored_var = tf.Variable(var.numpy(),
-                                   trainable=var.trainable,
-                                   dtype=var.dtype,
-                                   name=var.name.split(':')[0] + '_mirrored')
-        retval.append(mirrored_var)
-    return retval
+
 
 
 def get_sorted_on_captured_vars(concrete_fun):

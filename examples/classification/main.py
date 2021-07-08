@@ -50,7 +50,7 @@ def get_argument_parser():
     parser.add_argument(
         "--model_type",
         choices=[ModelType.KerasLayer, ModelType.FuncModel, ModelType.SubClassModel],
-        default=ModelType.FuncModel,
+        default=ModelType.SubClassModel,
         help="Type of mobilenetV2 model which should be quantized.")
     return parser
 
@@ -157,7 +157,7 @@ def train_test_export(config):
     with strategy_scope:
         from op_insertion import NNCFWrapperCustom
         if not args:
-            args = (get_model(config.model_type),)
+            args = get_model(config.model_type)
 
         model = tf.keras.Sequential([
             tf.keras.layers.Input(shape=(224, 224, 3)),
@@ -206,7 +206,7 @@ def train_test_export(config):
                                                    train_steps=train_steps)
 
     callbacks = get_callbacks(
-        model_checkpoint=True,
+        model_checkpoint=False,
         include_tensorboard=True,
         time_history=True,
         track_lr=True,
