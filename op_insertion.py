@@ -101,9 +101,21 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
 
                 # Make new concrete to update captured_inputs.
                 # This is needed for correct export.
+
+                # Update captures
+                if tf.distribute.has_strategy():
+                    new_ops_vars = get_zero_replica_from_mirrored_vars(self.op_vars)
+                else:
+                    new_ops_vars = self.op_vars
+                old_captures = [(data, placeholder) for data, placeholder in concrete.graph.captures]
+                new_captures = old_captures[:-len(self.op_vars)]
+
+                for new_var, (_, placeholder) in zip(new_ops_vars, old_captures[-len(self.op_vars):]):
+                    new_captures.append((new_var.handle, placeholder))
+                new_variables = [v for v in concrete.variables] + new_ops_vars
                 concrete = make_new_func(concrete.graph.as_graph_def(),
-                                         concrete.graph.captures,
-                                         concrete.variables,
+                                         new_captures,
+                                         new_variables,
                                          concrete.inputs,
                                          concrete.outputs)
 
@@ -168,6 +180,11 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
             retval = self.mirrored_vars_cache
 
         return retval
+
+
+def get_zero_replica_from_mirrored_vars(vars):
+    return [v._get_replica(0) for v in vars]
+
 
 def name_without_replica_idx(name):
     name = name.split(':')[0]
