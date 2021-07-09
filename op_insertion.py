@@ -72,7 +72,7 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
                 self.op_vars = []
             add_vars = True
             if add_vars:
-                num_fq = 0
+                new_vars = []
                 with concrete.graph.as_default() as g:
                     # Detect all conv layers
                     conv_ops = [op for op in concrete.graph.get_operations() if op.type == 'Conv2D']
@@ -89,15 +89,14 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
                             continue
 
                         # Insert fq on conv weights
-                        num_fq += insert_op_before(g, conv, 1, create_add_op_with_weights, conv.name)
+                        new_vars.append(insert_op_before(g, conv, 1, create_add_op_with_weights, conv.name))
                         # Insert fq after relu
-                        num_fq += insert_op_after(g, relu, 0, create_add_op_with_weights, relu.name)
+                        new_vars.append(insert_op_after(g, relu, 0, create_add_op_with_weights, relu.name))
 
                     model.output_tensor = g.outputs[0]
 
                 if not self.ops_vars_created:
-                    for _ in range(num_fq):
-                        self.op_vars.append(tf.Variable(6., dtype=tf.float32))
+                    self.op_vars = new_vars
                     self.ops_vars_created = True
 
                 # Make new concrete to update captured_inputs.
@@ -247,9 +246,9 @@ def insert_op_before(graph, target_op, input_idx, node_creation_fn, name):
 def insert_op_after(graph, target_parent, output_index, node_creation_fn, name):
     input_to_ops_map = input_to_ops.InputToOps(graph)
     consumer_ops = input_to_ops_map.ConsumerOperations(target_parent)
-    insert_op_output_tensor = node_creation_fn(target_parent.outputs[output_index], name)
+    insert_op_output_tensor, node_weights = node_creation_fn(target_parent.outputs[output_index], name)
     RerouteTensor(insert_op_output_tensor, target_parent.outputs[output_index], consumer_ops)
-    return 1
+    return node_weights
 
 
 def create_add_op_with_weights(input_tensor, name):
@@ -262,7 +261,7 @@ def create_add_op_with_weights(input_tensor, name):
             initializer=tf.keras.initializers.Constant(6),#init_ops.constant_initializer(1),
             trainable=True)
         output_tensor = tf.quantization.fake_quant_with_min_max_vars(input_tensor, -scale, scale)
-    return output_tensor
+    return output_tensor, scale
 
 
 def get_sorted_on_captured_vars(concrete_fun):

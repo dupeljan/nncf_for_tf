@@ -234,11 +234,11 @@ def train_test_export(config):
             callbacks=callbacks,
             **validation_kwargs)
 
-    #logger.info('evaluation...')
-    #compress_model.evaluate(
-    #    validation_dataset,
-    #    steps=validation_steps,
-    #    verbose=1)
+    logger.info('evaluation...')
+    compress_model.evaluate(
+        validation_dataset,
+        steps=validation_steps,
+        verbose=1)
 
     if 'export' in config.mode:
         save_path, save_format = get_saving_parameters(config)
