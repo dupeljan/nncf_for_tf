@@ -5,8 +5,8 @@
         "sample_size": [1, 224, 224, 3]
     },
 
-    "batch_size": 16,
-    "epochs": 15,
+    "batch_size": 128,
+    "epochs": 2,
     "distributed": true,
 
     "optimizer": {
@@ -14,7 +14,7 @@
         "schedule_type": "piecewise_constant",
         "schedule_params": {
             "boundaries": [5, 10],
-            "values": [1e-4, 1e-5, 1e-6]
+            "values": [1e-3, 1e-5, 1e-6]
         }
     },
 

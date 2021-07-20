@@ -242,7 +242,7 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
             retval = []
             for var in vars:
                 mirrored_var = tf.Variable(var.numpy(),
-                                           trainable=var.trainable,
+                                           trainable=False, #var.trainable,
                                            dtype=var.dtype,
                                            name=var.name.split(':')[0] + '_mirrored')
                 retval.append(mirrored_var)
