@@ -12,7 +12,7 @@
 """
 
 import tensorflow as tf
-import tensorflow_addons as tfa
+#import tensorflow_addons as tfa
 
 from examples.common.logger import logger
 
@@ -56,6 +56,7 @@ def build_optimizer(config, scheduler):
                                              beta_2=beta_2,
                                              epsilon=epsilon)
     elif optimizer_type == 'adamw':
+        raise RuntimeError()
         logger.info('Using AdamW')
         weight_decay = optimizer_params.get('weight_decay', 0.01)
         beta_1 = optimizer_params.get('beta_1', 0.9)
@@ -77,6 +78,7 @@ def build_optimizer(config, scheduler):
             average_decay=moving_average_decay,
             num_updates=None)
     if optimizer_params.get('lookahead', None):
+        raise RuntimeError()
         logger.info('Using lookahead optimizer.')
         optimizer = tfa.optimizers.Lookahead(optimizer)
 

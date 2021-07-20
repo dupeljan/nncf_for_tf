@@ -1,0 +1,19 @@
+models:
+  - name: mobilenet_v2
+    launchers:
+      - framework: dlsdk
+        device: CPU
+        adapter: classification
+    datasets:
+      - name: imagenet_1000_classes
+        preprocessing:
+        - type: crop
+          central_fraction: 0.875
+        - type: resize
+          size: 224
+        - type: normalization
+          std: 255
+        metrics:
+          - name: accuracy@top1
+            type: accuracy
+            top_k: 1

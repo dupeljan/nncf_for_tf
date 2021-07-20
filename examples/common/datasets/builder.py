@@ -35,7 +35,7 @@ class DatasetBuilder:
         self._dtype = config.get('dtype', 'float32')
         self._num_preprocess_workers = config.get('workers', tf.data.experimental.AUTOTUNE)
 
-        self._split = 'train' if is_train else 'validation'
+        self._split = 'train' if is_train else 'test'
         self._image_size = image_size
         self._num_channels = num_channels
         self._is_train = is_train

@@ -21,7 +21,9 @@ from examples.common.logger import logger
 from examples.common.distributed import get_distribution_strategy, get_strategy_scope
 from examples.common.utils import serialize_config, create_code_snapshot, configure_paths, get_saving_parameters
 from examples.common.argparser import get_common_argument_parser
-from examples.common.model_loader import get_model
+from examples.classification.test_models import get_KerasLayer_model
+from examples.classification.test_models import get_model
+from examples.classification.test_models import ModelType
 from examples.common.optimizer import build_optimizer
 from examples.common.scheduler import build_scheduler
 from examples.common.datasets.builder import DatasetBuilder
@@ -30,6 +32,9 @@ from nncf import create_compressed_model
 from nncf.configs.config import Config
 from nncf import create_compression_callbacks
 import tensorflow_hub as hub
+
+
+SAVE_MODEL_WORKAROUND = False
 
 
 def get_argument_parser():
@@ -42,6 +47,11 @@ def get_argument_parser():
     )
     parser.add_argument('--test-every-n-epochs', default=1, type=int,
                         help='Enables running validation every given number of epochs')
+    parser.add_argument(
+        "--model_type",
+        choices=[ModelType.KerasLayer, ModelType.FuncModel, ModelType.SubClassModel],
+        default=ModelType.KerasLayer,
+        help="Type of mobilenetV2 model which should be quantized.")
     return parser
 
 
@@ -128,8 +138,6 @@ def train_test_export(config):
     strategy = get_distribution_strategy(config)
     strategy_scope = get_strategy_scope(strategy)
 
-    # model, model_params = get_model(config.model,
-    #                                 pretrained=config.get('pretrained', True))
 
     builders = get_dataset_builders(config, strategy)
     datasets = [builder.build() for builder in builders]
@@ -141,14 +149,25 @@ def train_test_export(config):
     train_steps = train_builder.num_steps
     validation_steps = validation_builder.num_steps
 
-    model = tf.keras.Sequential(
-        hub.KerasLayer("https://tfhub.dev/google/imagenet/mobilenet_v2_100_224/classification/4", #'https://tfhub.dev/google/imagenet/inception_v3/classification/4',
-                       trainable=True, arguments=dict(batch_norm_momentum=0.997)))
-    model.add(tf.keras.layers.Activation('softmax'))
-    model.build([None, 224, 224, 3])
+    if config.model_type == ModelType.KerasLayer:
+        args = get_KerasLayer_model()
+    else:
+        args = None
 
     with strategy_scope:
-        model = model(**model_params)
+        from op_insertion import NNCFWrapperCustom
+        if not args:
+            args = get_model(config.model_type)
+
+        model = tf.keras.Sequential([
+            tf.keras.layers.Input(shape=(224, 224, 3)),
+            NNCFWrapperCustom(*args)
+        ])
+        if SAVE_MODEL_WORKAROUND:
+            path = '/tmp/model.pb'
+            model.save(path, save_format='tf')
+            model = tf.keras.models.load_model(path)
+
 
         compression_ctrl, compress_model = create_compressed_model(model, config)
         compression_callbacks = create_compression_callbacks(compression_ctrl, config.log_dir)
@@ -158,6 +177,7 @@ def train_test_export(config):
             epoch_size=train_builder.num_examples,
             batch_size=train_builder.global_batch_size,
             steps=train_steps)
+        config['optimizer'] = {'type': 'sgd'}
         optimizer = build_optimizer(
             config=config,
             scheduler=scheduler)
@@ -223,9 +243,8 @@ def train_test_export(config):
 
 
 def export(config):
-    # model, model_params = get_model(config.model,
-    #                                 pretrained=config.get('pretrained', True))
-    # model = model(**model_params)
+    raise NotImplementedError('Experemental code, please use train + export mode, '
+                              'don\'t use only export mode')
     model = tf.keras.Sequential(
         hub.KerasLayer("https://tfhub.dev/google/imagenet/mobilenet_v2_100_224/classification/4",
                        trainable=True))
@@ -253,8 +272,11 @@ def main(argv):
     parser = get_argument_parser()
     config = get_config_from_argv(argv, parser)
 
+    #config['eager_mode'] = True
     serialize_config(config, config.log_dir)
-
+    print('*'*50)
+    print(f'Using model type: {config.model_type}')
+    print('*'*50)
     nncf_root = Path(__file__).absolute().parents[2]
     create_code_snapshot(nncf_root, osp.join(config.log_dir, "snapshot.tar.gz"))
     if 'train' in config.mode or 'test' in config.mode:
