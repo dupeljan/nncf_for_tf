@@ -1,0 +1,1 @@
+python mo.py --framework=tf --data_type=FP32 --reverse_input_channels --input_shape=[1,224,224,3] --input=self --input_model=/home/dlyakhov/model_export/tf1_like/19_07_21/2/mobilenet_KerasLayer.pb

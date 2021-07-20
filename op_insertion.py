@@ -1,5 +1,6 @@
 import tensorflow as tf
 
+from typing import List
 from tensorflow.python.framework import importer
 from tensorflow.python.eager import wrap_function
 from tensorflow.python.distribute.values_util import get_current_replica_id_as_int
@@ -12,6 +13,12 @@ from examples.classification.test_models import ModelType
 
 
 DUMP_GRAPH = False
+
+
+class InsertionPoint(object):
+    WEIGHTS = 'w'
+    AFTER_LAYER = 'after'
+    BEFORE_LAYER = 'before'
 
 
 class NNCFCallableGraph(object):
@@ -36,6 +43,59 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
         else:
             self.trainable_model.orig_model = trainable_model
             self.eval_model.orig_model = trainable_model
+
+    def get_keras_layer_mobilenet_v2_fq_placing_simular_to_nncf2_0(self, g):
+        """Hardcode fq placing for examples.classification.test_models.get_KerasLayer_model"""
+        #Get blocks fq
+        add_ops = [op for op in g.get_operations() if 'addv2' in op.type.lower()]
+        assert len(add_ops) == 10
+        depthwise_conv =\
+            [op for op in g.get_operations() if 'expanded' in op.name.lower() and 'conv' in op.type.lower() and 'depthwise' in op.name.lower()]
+        project_ops =\
+            [op for op in g.get_operations() if 'expanded' in op.name.lower() and 'conv' in op.type.lower() and 'project' in op.name.lower()]
+        expand_ops =\
+            [op for op in g.get_operations() if 'expanded' in op.name.lower() and 'conv' in op.type.lower() and 'expand/' in op.name.lower()]
+        assert len(depthwise_conv) == len(project_ops) == len(expand_ops) + 1
+
+        depthwise_conv_relu = self.get_left_childs(g, depthwise_conv, 2, 'Relu6')
+        expand_ops_relu = self.get_left_childs(g, expand_ops, 2, 'Relu6')
+        project_bn = self.get_left_childs(g, project_ops, 1, 'FusedBatchNormV3')
+        # First conv
+        first_conv = [op for op in g.get_operations() if 'predict/MobilenetV2/Conv/Conv2D' in op.name and 'conv' in op.type.lower()][0]
+        first_conv_relu = self.get_left_childs(g, [first_conv], 2, 'Relu6')[0]
+        # Tail
+        last_conv = [op for op in g.get_operations() if 'predict/MobilenetV2/Conv_1/Conv2D' in op.name and 'conv' in op.type.lower()][0]
+        last_conv_relu = self.get_left_childs(g, [last_conv], 2, 'Relu6')[0]
+        avg_pool = self.get_left_childs(g, [last_conv], 4, 'AvgPool')[0]
+        prediction_mul = self.get_left_childs(g, [last_conv], 6, 'Conv2D')[0]
+        #
+        # Create transformation
+        #
+        transformations = []
+        # Transformations for blocks
+        transformations.extend([(op, InsertionPoint.WEIGHTS) for op in depthwise_conv])
+        transformations.extend([(op, InsertionPoint.WEIGHTS) for op in project_ops])
+        transformations.extend([(op, InsertionPoint.WEIGHTS) for op in expand_ops])
+
+        transformations.extend([(op, InsertionPoint.AFTER_LAYER) for op in depthwise_conv_relu])
+        transformations.extend([(op, InsertionPoint.AFTER_LAYER) for op in project_bn])
+        transformations.extend([(op, InsertionPoint.AFTER_LAYER) for op in expand_ops_relu])
+        transformations.extend([(op, InsertionPoint.AFTER_LAYER) for op in add_ops])
+        # Transformations for first conv
+        # FQ on inputs
+        transformations.append((first_conv, InsertionPoint.BEFORE_LAYER))
+        # FQ on first conv weights
+        transformations.append((first_conv, InsertionPoint.WEIGHTS))
+        # FQ after first conv relu
+        transformations.append((first_conv_relu, InsertionPoint.AFTER_LAYER))
+        # Transformation for net tail
+        transformations.append((last_conv, InsertionPoint.WEIGHTS))
+        transformations.append((last_conv_relu, InsertionPoint.AFTER_LAYER))
+        transformations.append((avg_pool, InsertionPoint.AFTER_LAYER))
+        transformations.append((prediction_mul, InsertionPoint.WEIGHTS))
+        assert len(transformations) == 117
+
+        return transformations
 
     def build(self, input_shape=None):
         for training, model in zip([True, False], [self.trainable_model, self.eval_model]):
@@ -70,34 +130,28 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
             # Add new op to layer
             if not self.ops_vars_created:
                 self.op_vars = []
-            add_vars = True
-            if add_vars:
+            enable_quantization = True
+            if enable_quantization:
                 new_vars = []
                 with concrete.graph.as_default() as g:
-                    # Detect all conv layers
-                    conv_ops = [op for op in concrete.graph.get_operations() if op.type == 'Conv2D']
-                    for conv in conv_ops:
-                        # Find second children of conv
-                        relu = [conv]
-                        i = 0
-                        while i < 2 and len(relu):
-                            relu = OperationUtils.get_children_ops(g, relu[0])
-                            i += 1
-                        relu = relu[0]
-                        # If it isn't relu - skip it
-                        if relu.type != 'Relu6':
-                            continue
-
-                        # Insert fq on conv weights
-                        new_vars.append(insert_op_before(g, conv, 1, create_add_op_with_weights, conv.name))
-                        # Insert fq after relu
-                        new_vars.append(insert_op_after(g, relu, 0, create_add_op_with_weights, relu.name))
+                    transformations = self.get_keras_layer_mobilenet_v2_fq_placing_simular_to_nncf2_0(g)
+                    # Insert given transformations
+                    for op, insertion_point in transformations:
+                        if insertion_point == InsertionPoint.AFTER_LAYER:
+                            new_vars.append(insert_op_after(g, op, 0, create_fq_with_weights, op.name))
+                        elif insertion_point == InsertionPoint.BEFORE_LAYER:
+                            new_vars.append(insert_op_before(g, op, 0, create_fq_with_weights, f'{op.name}_before_layer'))
+                        elif insertion_point == InsertionPoint.WEIGHTS:
+                            new_vars.append(insert_op_before(g, op, 1, create_fq_with_weights, op.name))
+                        else:
+                            raise RuntimeError('Wrong insertion point in quantization algo')
 
                     model.output_tensor = g.outputs[0]
 
                 if not self.ops_vars_created:
                     self.op_vars = new_vars
                     self.ops_vars_created = True
+                    print(f'{len(transformations)} quantizers were added successfully')
 
                 # Make new concrete to update captured_inputs.
                 # This is needed for correct export.
@@ -164,6 +218,24 @@ class NNCFWrapperCustom(tf.keras.layers.Wrapper):
                                  [model_obj.output_tensor])
 
         return fn_train(inputs)
+
+    def get_left_childs(self, graph, ops: List, depth: int, op_type: str = None):
+        """Get child for each op given by ops list in given depth"""
+        retval = []
+        for op in ops:
+            i = 0
+            child = [op]
+            while i < depth and len(child):
+                child = OperationUtils.get_children_ops(graph, child[0])
+                i += 1
+
+            child = child[0]
+            if op_type is not None:
+                assert child.type == op_type
+
+            retval.append(child)
+
+        return retval
 
     def create_mirrored_variables(self, vars):
         if not self.mirrored_vars_created:
@@ -268,7 +340,7 @@ def insert_op_after(graph, target_parent, output_index, node_creation_fn, name):
     return node_weights
 
 
-def create_add_op_with_weights(input_tensor, name):
+def create_fq_with_weights(input_tensor, name):
     """Should be called in graph context"""
     with variable_scope.variable_scope('new_node'):
         scale = variable_scope.get_variable(
@@ -319,18 +391,6 @@ def my_function_from_graph_def(graph_def, inputs, outputs, ref_captures):
     return wrapped_import.prune(
         nest.map_structure(import_graph.as_graph_element, inputs),
         nest.map_structure(import_graph.as_graph_element, outputs))
-
-
-def wrap_frozen_graph(graph_def, inputs, outputs):
-    def _imports_graph_def():
-        tf.compat.v1.import_graph_def(graph_def, name="")
-
-    wrapped_import = tf.compat.v1.wrap_function(_imports_graph_def, [])
-    import_graph = wrapped_import.graph
-
-    return wrapped_import.prune(
-        tf.nest.map_structure(import_graph.as_graph_element, inputs),
-        tf.nest.map_structure(import_graph.as_graph_element, outputs))
 
 
 class OperationUtils:

@@ -161,12 +161,8 @@ def train_test_export(config):
 
         model = tf.keras.Sequential([
             tf.keras.layers.Input(shape=(224, 224, 3)),
-            NNCFWrapperCustom(
-                *args
-            ),
-            tf.keras.layers.Activation('softmax')
+            NNCFWrapperCustom(*args)
         ])
-
         if SAVE_MODEL_WORKAROUND:
             path = '/tmp/model.pb'
             model.save(path, save_format='tf')
@@ -206,7 +202,7 @@ def train_test_export(config):
                                                    train_steps=train_steps)
 
     callbacks = get_callbacks(
-        model_checkpoint=False,
+        model_checkpoint=True,
         include_tensorboard=True,
         time_history=True,
         track_lr=True,
@@ -228,8 +224,8 @@ def train_test_export(config):
         logger.info('training...')
         compress_model.fit(
             train_dataset,
-            epochs=1,#train_epochs,
-            steps_per_epoch=30,#train_steps,
+            epochs=train_epochs,
+            steps_per_epoch=train_steps,
             initial_epoch=initial_epoch,
             callbacks=callbacks,
             **validation_kwargs)
@@ -247,6 +243,8 @@ def train_test_export(config):
 
 
 def export(config):
+    raise NotImplementedError('Experemental code, please use train + export mode, '
+                              'don\'t use only export mode')
     model = tf.keras.Sequential(
         hub.KerasLayer("https://tfhub.dev/google/imagenet/mobilenet_v2_100_224/classification/4",
                        trainable=True))
