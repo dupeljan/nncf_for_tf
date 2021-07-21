@@ -5,16 +5,16 @@
         "sample_size": [1, 224, 224, 3]
     },
 
-    "batch_size": 128,
-    "epochs": 2,
+    "batch_size": 256,
+    "epochs": 9,
     "distributed": true,
 
     "optimizer": {
         "type": "adam",
         "schedule_type": "piecewise_constant",
         "schedule_params": {
-            "boundaries": [5, 10],
-            "values": [1e-3, 1e-5, 1e-6]
+            "boundaries": [3, 6],
+            "values": [1e-3, 1e-4, 1e-5]
         }
     },
 
